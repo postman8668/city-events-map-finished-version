@@ -30,33 +30,9 @@
                     <label for="interestFilter" class="form-label">Интерес:</label>
                     <select class="form-select" id="interestFilter">
                         <option value="">Все интересы</option>
-                        <option value="классическая музыка">Классическая музыка</option>
-                        <option value="рок">Рок</option>
-                        <option value="программирование">Программирование</option>
-                        <option value="йога">Йога</option>
-                        <option value="футбол">Футбол</option>
-                        <option value="теннис">Теннис</option>
-                        <option value="велосипед">Велосипед</option>
-                        <option value="еда">Еда</option>
-                        <option value="кулинария">Кулинария</option>
-                        <option value="искусство">Искусство</option>
-                        <option value="живопись">Живопись</option>
-                        <option value="фотография">Фотография</option>
-                        <option value="культура">Культура</option>
-                        <option value="история">История</option>
-                        <option value="технологии">Технологии</option>
-                        <option value="спорт">Спорт</option>
-                        <option value="здоровье">Здоровье</option>
-                        <option value="природа">Природа</option>
-                        <option value="активный отдых">Активный отдых</option>
-                        <option value="развлечения">Развлечения</option>
-                        <option value="молодежь">Молодежь</option>
-                        <option value="концерт">Концерт</option>
-                        <option value="лекция">Лекция</option>
-                        <option value="обучение">Обучение</option>
-                        <option value="творчество">Творчество</option>
-                        <option value="традиции">Традиции</option>
-                        <option value="соревнования">Соревнования</option>
+                        {% for interest in interests %}
+                        <option value="{{ interest }}">{{ interest }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-12 col-sm-6 col-md-4 col-lg-3">
@@ -102,6 +78,16 @@
                                 <i class="fas fa-map-marker-alt ms-3 me-1"></i>{{ event.location }}
                             </div>
                             
+                            {% set is_past = event.date < today %}
+                            
+                            {% if is_past %}
+                            <div class="mt-2">
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-history me-1"></i>Событие прошло
+                                </span>
+                            </div>
+                            {% endif %}
+                            
                             <div class="mt-2">
                                 {% for interest in event.interests|from_json %}
                                 <span class="interest-tag">{{ interest }}</span>
@@ -113,12 +99,15 @@
                                 <a href="/event/{{ event.id }}" class="btn btn-outline-primary">
                                     <i class="fas fa-info-circle me-1"></i>Подробнее
                                 </a>
+                                {% if not is_past %}
                                 <button class="btn btn-outline-success" onclick="saveEvent({{ event.id }})">
-                                    <i class="fas fa-bookmark me-1"></i>Сохранить
+                                    <i class="fas fa-user-plus me-1"></i>Присоединиться
                                 </button>
-                                <button class="btn btn-outline-info btn-sm mt-1" onclick="showSavedEvents()">
-                                    <i class="fas fa-list me-1"></i>Мои события
+                                {% else %}
+                                <button class="btn btn-outline-secondary" disabled>
+                                    <i class="fas fa-ban me-1"></i>Событие прошло
                                 </button>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -168,11 +157,51 @@
             return;
         }
         
-        map = L.map('map').setView([55.515, 28.700], 11);
+        // Границы Полоцкого района и Новополоцка
+        const bounds = L.latLngBounds(
+            [55.40, 28.60],  // Юго-западный угол
+            [55.60, 28.90]   // Северо-восточный угол
+        );
+        
+        // Инициализация карты с жесткими ограничениями
+        map = L.map('map', {
+            center: [55.515, 28.700],
+            zoom: 12,
+            maxBounds: bounds,           // Ограничение перемещения
+            maxBoundsViscosity: 1.0,     // "Жесткость" границ
+            minZoom: 11,                 // Минимальный зум (чтобы видеть оба города)
+            maxZoom: 18,                 // Максимальный зум
+            zoomControl: true,           // Показывать кнопки зума
+            scrollWheelZoom: true,       // Зум колесиком мыши
+            doubleClickZoom: true,       // Зум двойным кликом
+            touchZoom: true,             // Зум на тачскрине
+            boxZoom: false,              // Отключить зум выделением области
+            keyboard: true,              // Управление клавиатурой
+            dragging: true,              // Перетаскивание карты
+            worldCopyJump: false,        // Отключить "прыжки" через границы мира
+            attributionControl: false
+        });
         
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
+            maxZoom: 18,
+            bounds: bounds  // Ограничение загрузки тайлов
         }).addTo(map);
+        
+        // Принудительное возвращение карты в границы при любом перемещении
+        map.on('drag', function() {
+            map.panInsideBounds(bounds, { animate: false });
+        });
+        
+        map.on('zoom', function() {
+            map.panInsideBounds(bounds, { animate: false });
+        });
+        
+        // Дополнительная проверка каждые 100мс
+        setInterval(function() {
+            if (map && !bounds.contains(map.getCenter())) {
+                map.panInsideBounds(bounds, { animate: false });
+            }
+        }, 100);
         
         console.log('Map initialized successfully');
         if (Array.isArray(initialEvents) && initialEvents.length > 0) {
@@ -279,19 +308,19 @@
                         <p>${event.description.substring(0, 100)}...</p>
                         <p><strong>Дата:</strong> ${event.date} в ${event.time}</p>
                         <p><strong>Место:</strong> ${event.location}</p>
-                        <a href="/event/${event.id}" class="btn btn-sm btn-primary">Подробнее</a>
+                        <a href="/event/${event.id}" class="btn btn-sm btn-primary map-popup-btn">Подробнее</a>
                     </div>
                 `)
                 .addTo(map);
             markers.push(marker);
         });
         
+        // Не изменяем границы карты автоматически, чтобы не выйти за пределы области
+        // Карта остается в пределах Полоцка и Новополоцка
         if (events.length > 0 && markers.length > 0) {
-            const group = new L.featureGroup(markers);
-            map.fitBounds(group.getBounds().pad(0.1));
-            console.log('Map bounds updated with', markers.length, 'markers');
+            console.log('Added', markers.length, 'markers to map');
         } else {
-            console.log('No markers to fit bounds. Events:', events.length, 'Markers:', markers.length);
+            console.log('No markers to add. Events:', events.length, 'Markers:', markers.length);
         }
     }
 
@@ -334,6 +363,18 @@
             `<span class="badge price-badge">${event.price} BYN</span>` :
             `<span class="badge free-badge">Бесплатно</span>`;
         
+        // Проверяем, прошло ли событие
+        const isPast = event.is_past || false;
+        const pastBadge = isPast ? '<div class="mt-2"><span class="badge bg-secondary"><i class="fas fa-history me-1"></i>Событие прошло</span></div>' : '';
+        
+        const joinButton = isPast ? 
+            `<button class="btn btn-outline-secondary" disabled>
+                <i class="fas fa-ban me-1"></i>Событие прошло
+            </button>` :
+            `<button class="btn btn-outline-success" onclick="saveEvent(${event.id})">
+                <i class="fas fa-user-plus me-1"></i>Присоединиться
+            </button>`;
+        
         div.innerHTML = `
             <div class="card-body">
                 <div class="row">
@@ -356,6 +397,8 @@
                             <i class="fas fa-map-marker-alt ms-3 me-1"></i>${event.location}
                         </div>
                         
+                        ${pastBadge}
+                        
                         <div class="mt-2">
                             ${interestsHtml}
                         </div>
@@ -365,12 +408,7 @@
                             <a href="/event/${event.id}" class="btn btn-outline-primary">
                                 <i class="fas fa-info-circle me-1"></i>Подробнее
                             </a>
-                            <button class="btn btn-outline-success" onclick="saveEvent(${event.id})">
-                                <i class="fas fa-bookmark me-1"></i>Сохранить
-                            </button>
-                            <button class="btn btn-outline-info btn-sm mt-1" onclick="showSavedEvents()">
-                                <i class="fas fa-list me-1"></i>Мои события
-                            </button>
+                            ${joinButton}
                         </div>
                     </div>
                 </div>
@@ -386,8 +424,7 @@
 
     function saveEvent(eventId) {
         {% if not session.user_id %}
-        alert('Для сохранения событий необходимо войти в систему');
-        window.location.href = '{{ url_for("login") }}';
+        showToast('Для присоединения к событию необходимо войти в систему', 'warning');
         return;
         {% endif %}
         
@@ -402,22 +439,21 @@
         })
         .then(response => {
             if (response.status === 401) {
-                alert('Для сохранения событий необходимо войти в систему');
-                window.location.href = '{{ url_for("login") }}';
+                showToast('Для присоединения к событию необходимо войти в систему', 'warning');
                 return;
             }
             return response.json();
         })
         .then(data => {
             if (data && data.success) {
-                alert(data.message);
+                showToast(data.message, 'success');
             } else if (data) {
-                alert(data.message);
+                showToast(data.message, 'error');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Ошибка при сохранении события');
+            showToast('Ошибка при присоединении к событию', 'error');
         });
     }
 

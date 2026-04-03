@@ -14,6 +14,31 @@
         
         <small class="text-muted">Время показано по Беларуси (UTC+3)</small>
         
+        <!-- Фильтр по статусу -->
+        <div class="mb-3">
+            <div class="btn-group" role="group">
+                <a href="{{ url_for('admin_events', status='all') }}" 
+                   class="btn btn-sm {% if status_filter == 'all' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                    Все события
+                </a>
+                <a href="{{ url_for('admin_events', status='pending') }}" 
+                   class="btn btn-sm {% if status_filter == 'pending' %}btn-warning{% else %}btn-outline-warning{% endif %}">
+                    На модерации
+                    {% if pending_count > 0 %}
+                        <span class="badge bg-danger">{{ pending_count }}</span>
+                    {% endif %}
+                </a>
+                <a href="{{ url_for('admin_events', status='approved') }}" 
+                   class="btn btn-sm {% if status_filter == 'approved' %}btn-success{% else %}btn-outline-success{% endif %}">
+                    Одобренные
+                </a>
+                <a href="{{ url_for('admin_events', status='rejected') }}" 
+                   class="btn btn-sm {% if status_filter == 'rejected' %}btn-danger{% else %}btn-outline-danger{% endif %}">
+                    Отклоненные
+                </a>
+            </div>
+        </div>
+        
         <div class="card">
             <div class="card-body">
                 {% if events %}
@@ -23,12 +48,10 @@
                             <tr>
                                 <th class="d-none d-sm-table-cell">ID</th>
                                 <th>Название</th>
+                                <th class="d-none d-md-table-cell">Автор</th>
                                 <th class="d-none d-md-table-cell">Категория</th>
                                 <th class="d-none d-lg-table-cell">Дата</th>
-                                <th class="d-none d-lg-table-cell">Время</th>
-                                <th class="d-none d-xl-table-cell">Место</th>
-                                <th class="d-none d-md-table-cell">Цена</th>
-                                <th class="d-none d-xl-table-cell">Создано</th>
+                                <th>Статус</th>
                                 <th>Действия</th>
                             </tr>
                         </thead>
@@ -46,21 +69,39 @@
                                     </div>
                                 </td>
                                 <td class="d-none d-md-table-cell">
+                                    {% if event.creator %}
+                                        <small>{{ event.creator.username }}</small>
+                                    {% else %}
+                                        <small class="text-muted">Система</small>
+                                    {% endif %}
+                                </td>
+                                <td class="d-none d-md-table-cell">
                                     <span class="badge bg-primary">{{ event.category }}</span>
                                 </td>
                                 <td class="d-none d-lg-table-cell">{{ event.date.strftime('%d.%m.%Y') }}</td>
-                                <td class="d-none d-lg-table-cell">{{ event.time.strftime('%H:%M') }}</td>
-                                <td class="d-none d-xl-table-cell">{{ event.location }}</td>
-                                <td class="d-none d-md-table-cell">
-                                    {% if event.price > 0 %}
-                                    <span class="badge price-badge">{{ event.price }} BYN</span>
-                                    {% else %}
-                                    <span class="badge free-badge">Бесплатно</span>
+                                <td>
+                                    {% if event.status == 'pending' %}
+                                        <span class="badge bg-warning text-dark">На модерации</span>
+                                    {% elif event.status == 'approved' %}
+                                        <span class="badge bg-success">Одобрено</span>
+                                    {% elif event.status == 'rejected' %}
+                                        <span class="badge bg-danger">Отклонено</span>
                                     {% endif %}
                                 </td>
-                                <td class="d-none d-xl-table-cell">{{ event.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                                 <td>
                                     <div class="btn-group-vertical btn-group-sm d-flex d-sm-inline-flex" role="group">
+                                        {% if event.status == 'pending' %}
+                                            <button onclick="moderateEvent({{ event.id }}, 'approve')" 
+                                                    class="btn btn-outline-success" title="Одобрить">
+                                                <i class="fas fa-check"></i>
+                                                <span class="d-none d-lg-inline ms-1">Одобрить</span>
+                                            </button>
+                                            <button onclick="moderateEvent({{ event.id }}, 'reject')" 
+                                                    class="btn btn-outline-danger" title="Отклонить">
+                                                <i class="fas fa-times"></i>
+                                                <span class="d-none d-lg-inline ms-1">Отклонить</span>
+                                            </button>
+                                        {% endif %}
                                         <a href="{{ url_for('edit_event', event_id=event.id) }}" 
                                            class="btn btn-outline-primary" title="Редактировать">
                                             <i class="fas fa-edit"></i>
@@ -101,4 +142,31 @@
         </div>
     </div>
 </div>
+
+<script>
+function moderateEvent(eventId, action) {
+    const url = action === 'approve' 
+        ? `/admin/events/${eventId}/approve` 
+        : `/admin/events/${eventId}/reject`;
+    
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            showToast(data.message || 'Произошла ошибка', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('Произошла ошибка при модерации события', 'error');
+    });
+}
+</script>
 {% endblock %}

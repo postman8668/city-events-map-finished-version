@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Мои события{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Мои события</h2>
+        <a href="{{ url_for('create_event') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Создать событие
+        </a>
+    </div>
+
+    {% if events %}
+        <div class="row">
+            {% for event in events %}
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h5 class="card-title">{{ event.title }}</h5>
+                            {% if event.status == 'pending' %}
+                                <span class="badge bg-warning text-dark">На модерации</span>
+                            {% elif event.status == 'approved' %}
+                                <span class="badge bg-success">Одобрено</span>
+                            {% elif event.status == 'rejected' %}
+                                <span class="badge bg-danger">Отклонено</span>
+                            {% endif %}
+                        </div>
+                        
+                        <p class="card-text text-muted">{{ event.description[:100] }}{% if event.description|length > 100 %}...{% endif %}</p>
+                        
+                        <div class="mb-2">
+                            <i class="fas fa-calendar text-primary"></i> {{ event.date.strftime('%d.%m.%Y') }}
+                            <i class="fas fa-clock text-primary ms-2"></i> {{ event.time.strftime('%H:%M') }}
+                        </div>
+                        
+                        <div class="mb-2">
+                            <i class="fas fa-map-marker-alt text-danger"></i> {{ event.location }}
+                        </div>
+                        
+                        <div class="mb-2">
+                            <span class="badge bg-info">{{ event.category }}</span>
+                            {% if event.price == 0 %}
+                                <span class="badge bg-success">Бесплатно</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ event.price }} BYN</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                Создано: {{ event.created_at.strftime('%d.%m.%Y %H:%M') }}
+                            </small>
+                        </div>
+                        
+                        {% if event.status == 'approved' %}
+                        <div class="mt-3">
+                            <a href="{{ url_for('event_detail', event_id=event.id) }}" class="btn btn-sm btn-outline-primary">
+                                Просмотреть
+                            </a>
+                            <a href="{{ url_for('edit_event', event_id=event.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-edit"></i> Редактировать
+                            </a>
+                        </div>
+                        {% elif event.status == 'pending' or event.status == 'rejected' %}
+                        <div class="mt-3">
+                            <a href="{{ url_for('edit_event', event_id=event.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-edit"></i> Редактировать
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> У вас пока нет созданных событий.
+            <a href="{{ url_for('create_event') }}" class="alert-link">Создать первое событие</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

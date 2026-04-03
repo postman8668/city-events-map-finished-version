@@ -7,6 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     <style>
         .navbar-brand {
             font-weight: bold;
@@ -179,6 +180,7 @@
         }
         main {
             flex: 1;
+            padding-bottom: 60px; /* Отступ снизу, чтобы контент не залазил на футер */
         }
         .dropdown-menu {
             border: 1px solid rgba(0,0,0,.15);
@@ -215,6 +217,22 @@
         .btn-outline-primary:hover {
             background: #3498db;
             border-color: #3498db;
+            color: white;
+        }
+        
+        /* Специальный стиль для кнопки в попапе карты */
+        .map-popup-btn {
+            color: white !important;
+            background: #3498db !important;
+            border: 2px solid #2980b9 !important;
+            font-weight: 600 !important;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        
+        .map-popup-btn:hover {
+            background: #2980b9 !important;
+            border-color: #1f618d !important;
+            color: white !important;
         }
         
         .btn-outline-success {
@@ -273,9 +291,16 @@
                         </a>
                     </li>
                     {% if session.user_id %}
+                    {% if session.username != 'admin' %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('my_events') }}">
+                            <i class="fas fa-calendar-plus me-1"></i>Мои события
+                        </a>
+                    </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('saved_events', username=session.username) }}">
-                            <i class="fas fa-bookmark me-1"></i>Мои события
+                            <i class="fas fa-users me-1"></i>Я участвую
                         </a>
                     </li>
                     {% if session.username == 'admin' %}
@@ -344,12 +369,13 @@
 
     <footer class="footer">
         <div class="container text-center">
-            <p>&copy; 2025 Карта событий города. Все права защищены.</p>
+            <p>&copy; 2026 Карта событий города. Все права защищены.</p>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script>
         /* eslint-disable */
         window.appData = {
@@ -359,18 +385,40 @@
             savedEventsUrl: '{{ url_for("saved_events", username="USERNAME") }}'
         };
         
+        // Функция для показа Toast-уведомлений
+        function showToast(message, type = 'info') {
+            const colors = {
+                success: 'linear-gradient(to right, #27ae60, #2ecc71)',
+                error: 'linear-gradient(to right, #e74c3c, #c0392b)',
+                warning: 'linear-gradient(to right, #f39c12, #e67e22)',
+                info: 'linear-gradient(to right, #3498db, #2980b9)'
+            };
+            
+            Toastify({
+                text: message,
+                duration: 2500,
+                gravity: "top",
+                position: "right",
+                stopOnFocus: true,
+                style: {
+                    background: colors[type] || colors.info,
+                    borderRadius: "8px",
+                    fontSize: "16px",
+                    padding: "16px 24px"
+                }
+            }).showToast();
+        }
+        
         function showSavedEvents() {
             if (!window.appData.isLoggedIn) {
-                alert('Для просмотра сохраненных событий необходимо войти в систему');
-                window.location.href = window.appData.loginUrl;
+                showToast('Для просмотра событий в которых вы участвуете необходимо войти в систему', 'warning');
                 return;
             }
             
             if (window.appData.username) {
                 window.location.href = window.appData.savedEventsUrl.replace('USERNAME', window.appData.username);
             } else {
-                alert('Ошибка: пользователь не авторизован');
-                window.location.href = window.appData.loginUrl;
+                showToast('Ошибка: пользователь не авторизован', 'error');
             }
         }
         /* eslint-enable */

@@ -24,7 +24,7 @@
                 </div>
                 <div class="card-body">
                     <div class="row">
-                        <div class="col-md-6">
+                        <div class="col-md-12">
                             <table class="table table-borderless">
                                 <tr>
                                     <th width="40%">ID:</th>
@@ -52,7 +52,7 @@
                                     <th>Роль:</th>
                                     <td>
                                         {% if target_user.username == 'admin' %}
-                                            <span class="badge bg-danger">Администратор</span>
+                                            <span class="badge bg-warning text-dark">Администратор</span>
                                         {% else %}
                                             <span class="badge bg-primary">Пользователь</span>
                                         {% endif %}
@@ -63,23 +63,6 @@
                                     <td>{{ target_user.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                                 </tr>
                             </table>
-                        </div>
-                        <div class="col-md-6">
-                            <h6>Интересы:</h6>
-                            {% if target_user.interests %}
-                                {% set interests_list = target_user.interests|from_json %}
-                                {% if interests_list %}
-                                    <div class="d-flex flex-wrap gap-2">
-                                        {% for interest in interests_list %}
-                                            <span class="badge bg-info">{{ interest }}</span>
-                                        {% endfor %}
-                                    </div>
-                                {% else %}
-                                    <p class="text-muted">Интересы не указаны</p>
-                                {% endif %}
-                            {% else %}
-                                <p class="text-muted">Интересы не указаны</p>
-                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -106,7 +89,7 @@
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
-                                    <h6 class="card-title mb-1">Сохраненных событий</h6>
+                                    <h6 class="card-title mb-1">События в которых участвую</h6>
                                     <h3 class="mb-0">{{ saved_events_count }}</h3>
                                 </div>
                                 <div>
@@ -187,7 +170,7 @@
 
             <div class="card mb-4">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-bookmark"></i> Последние сохраненные события</h5>
+                    <h5 class="mb-0"><i class="fas fa-bookmark"></i> События в которых участвует</h5>
                 </div>
                 <div class="card-body">
                     {% if recent_saved_events %}

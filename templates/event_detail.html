@@ -53,7 +53,7 @@
                 
                 <div class="d-grid gap-2 d-md-flex justify-content-md-start">
                     <button class="btn btn-success" onclick="saveEvent({{ event.id }})">
-                        <i class="fas fa-bookmark me-1"></i>Сохранить событие
+                        <i class="fas fa-user-plus me-1"></i>Присоединиться
                     </button>
                     <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
                         <i class="fas fa-arrow-left me-1"></i>Назад к списку
@@ -208,7 +208,7 @@
         const comment = document.getElementById('comment').value;
         
         if (!rating) {
-            alert('Пожалуйста, выберите оценку');
+            showToast('Пожалуйста, выберите оценку', 'warning');
             return;
         }
         
@@ -226,22 +226,21 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(data.message);
+                showToast(data.message, 'success');
                 location.reload();
             } else {
-                alert(data.message);
+                showToast(data.message, 'error');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Ошибка при отправке отзыва');
+            showToast('Ошибка при отправке отзыва', 'error');
         });
     });
     
     function saveEvent(eventId) {
         {% if not session.user_id %}
-        alert('Для сохранения событий необходимо войти в систему');
-        window.location.href = '{{ url_for("login") }}';
+        showToast('Для сохранения событий необходимо войти в систему', 'warning');
         return;
         {% endif %}
         
@@ -257,14 +256,14 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(data.message);
+                showToast(data.message, 'success');
             } else {
-                alert(data.message);
+                showToast(data.message, 'error');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Ошибка при сохранении события');
+            showToast('Ошибка при сохранении события', 'error');
         });
     }
     
@@ -296,15 +295,15 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(data.message);
+                showToast(data.message, 'success');
                 location.reload();
             } else {
-                alert(data.message);
+                showToast(data.message, 'error');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Ошибка при обновлении отзыва');
+            showToast('Ошибка при обновлении отзыва', 'error');
         });
     }
     
@@ -322,16 +321,16 @@
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(data.message);
+                showToast(data.message, 'success');
                 document.getElementById('review-' + reviewId).remove();
                 location.reload();
             } else {
-                alert(data.message);
+                showToast(data.message, 'error');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Ошибка при удалении отзыва');
+            showToast('Ошибка при удалении отзыва', 'error');
         });
     }
 </script>

@@ -45,7 +45,8 @@ def ensure_database_seeded():
                         category='Культура',
                         interests='["история", "культура", "экскурсия", "архитектура"]',
                         price=8.0,
-                        max_participants=40
+                        max_participants=40,
+                        status='approved'
                     ),
                     Event(
                         title='Фестиваль уличной еды',
@@ -58,7 +59,8 @@ def ensure_database_seeded():
                         category='Еда',
                         interests='["еда", "фестиваль", "развлечения"]',
                         price=5.0,
-                        max_participants=500
+                        max_participants=500,
+                        status='approved'
                     ),
                     Event(
                         title='Йога в парке',
@@ -71,7 +73,8 @@ def ensure_database_seeded():
                         category='Спорт',
                         interests='["йога", "спорт", "здоровье", "природа"]',
                         price=0.0,
-                        max_participants=30
+                        max_participants=30,
+                        status='approved'
                     )
                 ]
                 for ev in seed_events:
@@ -143,9 +146,12 @@ class Event(db.Model):
     price = db.Column(db.Float, default=0.0)
     max_participants = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=belarus_now)
+    status = db.Column(db.String(20), default='pending', nullable=False)  # pending, approved, rejected
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     
     reviews = db.relationship('Review', backref='event', lazy=True, cascade='all, delete-orphan')
     saved_events = db.relationship('SavedEvent', backref='event', lazy=True, cascade='all, delete-orphan')
+    creator = db.relationship('User', backref='created_events', foreign_keys=[creator_id])
     
     @property
     def participants_count(self):
@@ -207,9 +213,9 @@ class LogEntry(db.Model):
 @app.route('/')
 def index():
     ensure_database_seeded()
-    all_events = Event.query.all()
+    all_events = Event.query.filter_by(status='approved').all()
 
-    events = Event.query.order_by(Event.date, Event.time).all()
+    events = Event.query.filter_by(status='approved').order_by(Event.date, Event.time).all()
 
     events_data = []
     for event in events:
@@ -231,9 +237,21 @@ def index():
     categories = db.session.query(Event.category).distinct().all()
     categories = [cat[0] for cat in categories]
     
+    # Получаем все уникальные интересы из всех событий
+    all_interests = set()
+    for event in all_events:
+        try:
+            interests = json.loads(event.interests)
+            if isinstance(interests, list):
+                all_interests.update(interests)
+        except:
+            pass
+    interests = sorted(list(all_interests))
+    
     print(f"Total events in database: {len(all_events)}")
     print(f"Events loaded on index: {len(events)}")
     print(f"Categories: {categories}")
+    print(f"Interests: {interests}")
     
     for i, event in enumerate(events[:3]):
         print(f"  Event {i+1}: {event.title} - lat: {event.latitude}, lng: {event.longitude}")
@@ -242,7 +260,10 @@ def index():
     log_event('INFO', f'Посещение главной страницы. Событий: {len(events)}, категорий: {len(categories)}', 
               user_id, request)
     
-    return render_template('index.html', events=events, categories=categories, events_json=events_data)
+    # Передаем текущую дату в шаблон
+    today = date.today()
+    
+    return render_template('index.html', events=events, categories=categories, interests=interests, events_json=events_data, today=today)
 
 @app.route('/api/events')
 def api_events():
@@ -254,14 +275,14 @@ def api_events():
         
         print(f"API called with category: '{category}', interest: '{interest}', search: '{search}'")
         
-        total_events = Event.query.count()
+        total_events = Event.query.filter_by(status='approved').count()
         print(f"Total events in database: {total_events}")
         
         if total_events == 0:
             print("No events found in database!")
             return jsonify([])
         
-        query = Event.query
+        query = Event.query.filter_by(status='approved')
         
         if category and category != 'all':
             query = query.filter(Event.category == category)
@@ -271,19 +292,21 @@ def api_events():
             query = query.filter(Event.interests.contains(f'"{interest}"'))
             print(f"Filtered by interest: {interest}")
         
-        if search:
-            search_term = f"%{search}%"
-            query = query.filter(
-                db.or_(
-                    Event.title.like(search_term),
-                    Event.description.like(search_term),
-                    Event.location.like(search_term)
-                )
-            )
-            print(f"Filtered by search: {search}")
-        
         events = query.order_by(Event.date, Event.time).all()
-        print(f"Found {len(events)} events")
+        
+        # Фильтрация по поиску в Python (для корректной работы с кириллицей)
+        if search:
+            search_lower = search.lower()
+            filtered_events = []
+            for event in events:
+                if (search_lower in event.title.lower() or 
+                    search_lower in event.description.lower() or 
+                    search_lower in event.location.lower()):
+                    filtered_events.append(event)
+            events = filtered_events
+            print(f"Filtered by search: {search}, found {len(events)} events")
+        
+        print(f"Found {len(events)} events total")
         
         for event in events:
             print(f"  - {event.title} (category: {event.category}, lat: {event.latitude}, lng: {event.longitude})")
@@ -397,20 +420,25 @@ def delete_review(review_id):
 def save_event():
     data = request.get_json()
     
+    # Проверяем, не прошло ли событие
+    event = Event.query.get(data['event_id'])
+    if event and event.date < date.today():
+        return jsonify({'success': False, 'message': 'Нельзя присоединиться к прошедшему событию!'})
+    
     existing = SavedEvent.query.filter_by(user_id=session['user_id'], event_id=data['event_id']).first()
     if existing:
-        return jsonify({'success': False, 'message': 'Событие уже сохранено!'})
+        return jsonify({'success': False, 'message': 'Вы уже присоединились к этому событию!'})
     
     saved_event = SavedEvent(user_id=session['user_id'], event_id=data['event_id'])
     db.session.add(saved_event)
     db.session.commit()
     
-    return jsonify({'success': True, 'message': 'Событие сохранено!'})
+    return jsonify({'success': True, 'message': 'Вы успешно присоединились к событию!'})
 
 @app.route('/unsave_event', methods=['POST'])
 @login_required
 def unsave_event():
-    """Удаление события из сохраненных"""
+    """Отказ от участия в событии"""
     data = request.get_json()
     event_id = data.get('event_id')
     
@@ -420,17 +448,17 @@ def unsave_event():
     ).first()
     
     if not saved_event:
-        return jsonify({'success': False, 'message': 'Событие не найдено в сохраненных!'})
+        return jsonify({'success': False, 'message': 'Вы не участвуете в этом событии!'})
     
     try:
         db.session.delete(saved_event)
         db.session.commit()
         
-        log_event('INFO', f'Пользователь {session.get("username")} удалил событие {event_id} из сохраненных', session['user_id'], request)
-        return jsonify({'success': True, 'message': 'Событие удалено из сохраненных!'})
+        log_event('INFO', f'Пользователь {session.get("username")} отказался от участия в событии {event_id}', session['user_id'], request)
+        return jsonify({'success': True, 'message': 'Вы отказались от участия в событии!'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': f'Ошибка при удалении: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'Ошибка при отказе от участия: {str(e)}'}), 500
 
 @app.route('/saved_events/<username>')
 @login_required
@@ -581,6 +609,7 @@ def admin_dashboard():
         return redirect(url_for('index'))
     
     total_events = Event.query.count()
+    pending_events = Event.query.filter_by(status='pending').count()
     total_users = User.query.count()
     total_logs = LogEntry.query.count()
     
@@ -592,6 +621,7 @@ def admin_dashboard():
     
     return render_template('admin_dashboard.html', 
                          total_events=total_events,
+                         pending_events=pending_events,
                          total_users=total_users,
                          total_logs=total_logs,
                          recent_events=recent_events,
@@ -652,29 +682,42 @@ def admin_users():
 @app.route('/admin/events')
 @login_required
 def admin_events():
-    """Управление событиями"""
+    """Управление событиями и модерация"""
     user = db.session.get(User, session['user_id'])
     if user.username != 'admin':
         flash('У вас нет прав для управления событиями!', 'error')
         return redirect(url_for('index'))
     
-    events = Event.query.order_by(Event.created_at.desc()).all()
+    status_filter = request.args.get('status', 'all')
     
-    log_event('INFO', f'Админ {user.username} просматривает список событий', user.id, request)
+    if status_filter == 'all':
+        events = Event.query.order_by(Event.created_at.desc()).all()
+    else:
+        events = Event.query.filter_by(status=status_filter).order_by(Event.created_at.desc()).all()
     
-    return render_template('admin_events.html', events=events)
+    pending_count = Event.query.filter_by(status='pending').count()
+    
+    log_event('INFO', f'Админ {user.username} просматривает список событий (фильтр: {status_filter})', user.id, request)
+    
+    return render_template('admin_events.html', events=events, status_filter=status_filter, pending_count=pending_count)
 
-@app.route('/admin/events/create', methods=['GET', 'POST'])
+@app.route('/events/create', methods=['GET', 'POST'])
 @login_required
 def create_event():
-    """Создание нового события"""
+    """Создание нового события любым авторизованным пользователем"""
     user = db.session.get(User, session['user_id'])
-    if user.username != 'admin':
-        flash('У вас нет прав для создания событий!', 'error')
-        return redirect(url_for('index'))
     
     if request.method == 'POST':
         try:
+            # Обработка интересов: преобразуем слова через запятую в JSON массив
+            interests_input = request.form.get('interests', '').strip()
+            if interests_input:
+                # Разделяем по запятой, убираем пробелы, фильтруем пустые
+                interests_list = [interest.strip() for interest in interests_input.split(',') if interest.strip()]
+                interests_json = json.dumps(interests_list, ensure_ascii=False)
+            else:
+                interests_json = '[]'
+            
             form_data = {
                 'title': request.form.get('title', '').strip(),
                 'description': request.form.get('description', '').strip(),
@@ -682,7 +725,7 @@ def create_event():
                 'latitude': request.form.get('latitude', ''),
                 'longitude': request.form.get('longitude', ''),
                 'category': request.form.get('category', ''),
-                'interests': request.form.get('interests', '[]'),
+                'interests': interests_json,
                 'price': request.form.get('price', '0'),
                 'max_participants': request.form.get('max_participants', '')
             }
@@ -691,7 +734,16 @@ def create_event():
             if validation_errors:
                 for error in validation_errors:
                     flash(error, 'error')
-                return render_template('create_event.html', categories=categories)
+                categories = db.session.query(Event.category).distinct().all()
+                categories = [cat[0] for cat in categories]
+                # Передаем данные формы обратно для сохранения введенных значений
+                form_data['date'] = request.form.get('date', '')
+                form_data['time'] = request.form.get('time', '')
+                form_data['interests_display'] = interests_input
+                return render_template('create_event.html', categories=categories, form_data=form_data)
+            
+            # Админ создает события сразу одобренными, остальные - на модерации
+            status = 'approved' if user.username == 'admin' else 'pending'
             
             event = Event(
                 title=form_data['title'],
@@ -704,39 +756,58 @@ def create_event():
                 category=form_data['category'],
                 interests=form_data['interests'],
                 price=float(form_data['price']),
-                max_participants=int(form_data['max_participants']) if form_data['max_participants'] else None
+                max_participants=int(form_data['max_participants']) if form_data['max_participants'] else None,
+                status=status,
+                creator_id=user.id
             )
             
             db.session.add(event)
             db.session.commit()
             
-            flash('Событие успешно создано!', 'success')
-            log_event('INFO', f'Админ {user.username} создал событие: {form_data["title"]}', user.id, request)
-            return redirect(url_for('admin_events'))
+            if status == 'approved':
+                flash('Событие успешно создано и опубликовано!', 'success')
+            else:
+                flash('Событие отправлено на модерацию. После проверки администратором оно будет опубликовано.', 'info')
+            
+            log_event('INFO', f'Пользователь {user.username} создал событие: {form_data["title"]} (статус: {status})', user.id, request)
+            return redirect(url_for('my_events'))
             
         except Exception as e:
             db.session.rollback()
             flash(f'Ошибка при создании события: {str(e)}', 'error')
-            log_event('ERROR', f'Ошибка создания события админом {user.username}: {str(e)}', user.id, request)
+            log_event('ERROR', f'Ошибка создания события пользователем {user.username}: {str(e)}', user.id, request)
     
     categories = db.session.query(Event.category).distinct().all()
     categories = [cat[0] for cat in categories]
     
     return render_template('create_event.html', categories=categories)
+    categories = [cat[0] for cat in categories]
+    
+    return render_template('create_event.html', categories=categories)
 
-@app.route('/admin/events/<int:event_id>/edit', methods=['GET', 'POST'])
+@app.route('/events/<int:event_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_event(event_id):
     """Редактирование события"""
     user = db.session.get(User, session['user_id'])
-    if user.username != 'admin':
-        flash('У вас нет прав для редактирования событий!', 'error')
-        return redirect(url_for('index'))
-    
     event = Event.query.get_or_404(event_id)
+    
+    # Проверка прав: админ может редактировать все, пользователь - только свои
+    if user.username != 'admin' and event.creator_id != user.id:
+        flash('У вас нет прав для редактирования этого события!', 'error')
+        return redirect(url_for('index'))
     
     if request.method == 'POST':
         try:
+            # Обработка интересов: преобразуем слова через запятую в JSON массив
+            interests_input = request.form.get('interests', '').strip()
+            if interests_input:
+                # Разделяем по запятой, убираем пробелы, фильтруем пустые
+                interests_list = [interest.strip() for interest in interests_input.split(',') if interest.strip()]
+                interests_json = json.dumps(interests_list, ensure_ascii=False)
+            else:
+                interests_json = '[]'
+            
             event.title = request.form['title']
             event.description = request.form['description']
             event.date = datetime.strptime(request.form['date'], '%Y-%m-%d').date()
@@ -745,25 +816,38 @@ def edit_event(event_id):
             event.latitude = float(request.form['latitude'])
             event.longitude = float(request.form['longitude'])
             event.category = request.form['category']
-            event.interests = request.form['interests']
+            event.interests = interests_json
             event.price = float(request.form['price']) if request.form['price'] else 0.0
             event.max_participants = int(request.form['max_participants']) if request.form['max_participants'] else None
             
             db.session.commit()
             
             flash('Событие успешно обновлено!', 'success')
-            log_event('INFO', f'Админ {user.username} обновил событие: {event.title}', user.id, request)
-            return redirect(url_for('admin_events'))
+            log_event('INFO', f'Пользователь {user.username} обновил событие: {event.title}', user.id, request)
+            
+            if user.username == 'admin':
+                return redirect(url_for('admin_events'))
+            else:
+                return redirect(url_for('my_events'))
             
         except Exception as e:
             db.session.rollback()
             flash(f'Ошибка при обновлении события: {str(e)}', 'error')
-            log_event('ERROR', f'Ошибка обновления события админом {user.username}: {str(e)}', user.id, request)
+            log_event('ERROR', f'Ошибка обновления события пользователем {user.username}: {str(e)}', user.id, request)
     
     categories = db.session.query(Event.category).distinct().all()
     categories = [cat[0] for cat in categories]
     
-    return render_template('edit_event.html', event=event, categories=categories)
+    # Преобразуем JSON интересов обратно в строку через запятую для отображения
+    interests_display = ''
+    try:
+        interests_list = json.loads(event.interests)
+        if isinstance(interests_list, list):
+            interests_display = ', '.join(interests_list)
+    except:
+        interests_display = ''
+    
+    return render_template('edit_event.html', event=event, categories=categories, interests_display=interests_display)
 
 @app.route('/admin/events/<int:event_id>/delete', methods=['POST'])
 @login_required
@@ -790,6 +874,57 @@ def delete_event(event_id):
         log_event('ERROR', f'Ошибка удаления события админом {user.username}: {str(e)}', user.id, request)
     
     return redirect(url_for('admin_events'))
+
+@app.route('/admin/events/<int:event_id>/approve', methods=['POST'])
+@login_required
+def approve_event(event_id):
+    """Одобрение события"""
+    user = db.session.get(User, session['user_id'])
+    if user.username != 'admin':
+        return jsonify({'success': False, 'message': 'У вас нет прав для модерации событий!'}), 403
+    
+    event = Event.query.get_or_404(event_id)
+    
+    try:
+        event.status = 'approved'
+        db.session.commit()
+        
+        log_event('INFO', f'Админ {user.username} одобрил событие: {event.title}', user.id, request)
+        return jsonify({'success': True, 'message': 'Событие одобрено и опубликовано!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
+
+@app.route('/admin/events/<int:event_id>/reject', methods=['POST'])
+@login_required
+def reject_event(event_id):
+    """Отклонение события"""
+    user = db.session.get(User, session['user_id'])
+    if user.username != 'admin':
+        return jsonify({'success': False, 'message': 'У вас нет прав для модерации событий!'}), 403
+    
+    event = Event.query.get_or_404(event_id)
+    
+    try:
+        event.status = 'rejected'
+        db.session.commit()
+        
+        log_event('INFO', f'Админ {user.username} отклонил событие: {event.title}', user.id, request)
+        return jsonify({'success': True, 'message': 'Событие отклонено!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
+
+@app.route('/my-events')
+@login_required
+def my_events():
+    """Просмотр своих созданных событий"""
+    user = db.session.get(User, session['user_id'])
+    events = Event.query.filter_by(creator_id=user.id).order_by(Event.created_at.desc()).all()
+    
+    log_event('INFO', f'Пользователь {user.username} просматривает свои события', user.id, request)
+    
+    return render_template('my_events.html', events=events)
 
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @login_required
