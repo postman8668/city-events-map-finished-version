@@ -23,7 +23,8 @@
                             <div class="mb-3">
                                 <label for="title" class="form-label">Название события *</label>
                                 <input type="text" class="form-control" id="title" name="title" 
-                                       value="{{ event.title }}" required>
+                                       value="{{ event.title }}" required minlength="3" maxlength="200">
+                                <div class="form-text">От 3 до 200 символов</div>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -43,7 +44,8 @@
                     
                     <div class="mb-3">
                         <label for="description" class="form-label">Описание *</label>
-                        <textarea class="form-control" id="description" name="description" rows="4" required>{{ event.description }}</textarea>
+                        <textarea class="form-control" id="description" name="description" rows="4" required minlength="10" maxlength="5000">{{ event.description }}</textarea>
+                        <div class="form-text">От 10 до 5000 символов</div>
                     </div>
                     
                     <div class="row">
@@ -65,7 +67,8 @@
                             <div class="mb-3">
                                 <label for="price" class="form-label">Цена (BYN)</label>
                                 <input type="number" class="form-control" id="price" name="price" 
-                                       min="0" step="0.01" value="{{ event.price }}">
+                                       min="0" max="999999" step="0.01" value="{{ event.price }}">
+                                <div class="form-text">Максимум 999999 BYN</div>
                             </div>
                         </div>
                     </div>
@@ -73,8 +76,8 @@
                     <div class="mb-3">
                         <label for="location" class="form-label">Место проведения *</label>
                         <input type="text" class="form-control" id="location" name="location" 
-                               value="{{ event.location }}" required>
-                        <div class="form-text">Адрес заполнится автоматически при выборе на карте, но вы можете его отредактировать</div>
+                               value="{{ event.location }}" required minlength="3" maxlength="500">
+                        <div class="form-text">Адрес заполнится автоматически при выборе на карте, но вы можете его отредактировать (от 3 до 500 символов)</div>
                     </div>
                     
                     <div class="mb-3">
@@ -105,15 +108,16 @@
                     <div class="mb-3">
                         <label for="interests" class="form-label">Интересы *</label>
                         <input type="text" class="form-control" id="interests" name="interests" 
-                               value="{{ interests_display }}" required
+                               value="{{ interests_display }}" required maxlength="500"
                                placeholder="история, культура, экскурсия">
-                        <div class="form-text">Введите интересы через запятую (например: история, культура, экскурсия)</div>
+                        <div class="form-text">Введите интересы через запятую, максимум 20 интересов (до 500 символов)</div>
                     </div>
                     
                     <div class="mb-3">
                         <label for="max_participants" class="form-label">Максимум участников</label>
                         <input type="number" class="form-control" id="max_participants" name="max_participants" 
-                               min="1" value="{{ event.max_participants or '' }}" placeholder="Не ограничено">
+                               min="1" max="100000" value="{{ event.max_participants or '' }}" placeholder="Не ограничено">
+                        <div class="form-text">Максимум 100000 участников</div>
                     </div>
                     
                     <div class="d-flex gap-2">

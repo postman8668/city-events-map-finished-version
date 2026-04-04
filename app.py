@@ -480,25 +480,52 @@ def saved_events(username):
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
+        username = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Сохраняем данные для возврата в форму
+        form_data = {
+            'username': username,
+            'email': email
+        }
+        
+        # Валидация
+        errors = []
+        
+        if not username or len(username) < 3:
+            errors.append('Имя пользователя должно содержать минимум 3 символа')
+        
+        if len(username) > 50:
+            errors.append('Имя пользователя не должно превышать 50 символов')
+        
+        if not email or '@' not in email:
+            errors.append('Введите корректный email адрес')
+        
+        if len(email) > 100:
+            errors.append('Email не должен превышать 100 символов')
+        
+        if not password or len(password) < 6:
+            errors.append('Пароль должен содержать минимум 6 символов')
+        
+        if len(password) > 100:
+            errors.append('Пароль не должен превышать 100 символов')
         
         if password != confirm_password:
-            flash('Пароли не совпадают!', 'error')
-            log_event('WARNING', f'Попытка регистрации с несовпадающими паролями: {username}', None, request)
-            return render_template('register.html')
+            errors.append('Пароли не совпадают')
         
         if User.query.filter_by(username=username).first():
-            flash('Пользователь с таким именем уже существует!', 'error')
-            log_event('WARNING', f'Попытка регистрации с существующим именем: {username}', None, request)
-            return render_template('register.html')
+            errors.append('Пользователь с таким именем уже существует')
         
         if User.query.filter_by(email=email).first():
-            flash('Пользователь с таким email уже существует!', 'error')
-            log_event('WARNING', f'Попытка регистрации с существующим email: {email}', None, request)
-            return render_template('register.html')
+            errors.append('Пользователь с таким email уже существует')
+        
+        if errors:
+            for error in errors:
+                flash(error, 'error')
+            log_event('WARNING', f'Ошибка регистрации: {username} - {", ".join(errors)}', None, request)
+            return render_template('register.html', form_data=form_data)
         
         user = User(username=username, email=email, is_active=True)
         user.set_password(password)
@@ -510,13 +537,25 @@ def register():
         log_event('INFO', f'Новый пользователь зарегистрирован: {username} ({email})', user.id, request)
         return redirect(url_for('login'))
     
-    return render_template('register.html')
+    return render_template('register.html', form_data=None)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        
+        # Сохраняем username для возврата в форму
+        form_data = {'username': username}
+        
+        # Валидация
+        if not username:
+            flash('Введите имя пользователя', 'error')
+            return render_template('login.html', form_data=form_data)
+        
+        if not password:
+            flash('Введите пароль', 'error')
+            return render_template('login.html', form_data=form_data)
         
         user = User.query.filter_by(username=username).first()
         
@@ -531,7 +570,7 @@ def login():
             if not user.is_active:
                 flash('Ваш аккаунт заблокирован! Обратитесь к администратору.', 'error')
                 log_event('WARNING', f'Попытка входа заблокированным пользователем: {username}', user.id, request)
-                return render_template('login.html')
+                return render_template('login.html', form_data=form_data)
             
             session['user_id'] = user.id
             session['username'] = user.username
@@ -541,8 +580,9 @@ def login():
         else:
             flash('Неверное имя пользователя или пароль!', 'error')
             log_event('WARNING', f'Неудачная попытка входа: {username}', None, request)
+            return render_template('login.html', form_data=form_data)
     
-    return render_template('login.html')
+    return render_template('login.html', form_data=None)
 
 @app.route('/logout')
 def logout():
@@ -802,23 +842,59 @@ def edit_event(event_id):
             # Обработка интересов: преобразуем слова через запятую в JSON массив
             interests_input = request.form.get('interests', '').strip()
             if interests_input:
-                # Разделяем по запятой, убираем пробелы, фильтруем пустые
                 interests_list = [interest.strip() for interest in interests_input.split(',') if interest.strip()]
                 interests_json = json.dumps(interests_list, ensure_ascii=False)
             else:
                 interests_json = '[]'
             
-            event.title = request.form['title']
-            event.description = request.form['description']
-            event.date = datetime.strptime(request.form['date'], '%Y-%m-%d').date()
-            event.time = datetime.strptime(request.form['time'], '%H:%M').time()
-            event.location = request.form['location']
-            event.latitude = float(request.form['latitude'])
-            event.longitude = float(request.form['longitude'])
-            event.category = request.form['category']
-            event.interests = interests_json
-            event.price = float(request.form['price']) if request.form['price'] else 0.0
-            event.max_participants = int(request.form['max_participants']) if request.form['max_participants'] else None
+            form_data = {
+                'title': request.form.get('title', '').strip(),
+                'description': request.form.get('description', '').strip(),
+                'location': request.form.get('location', '').strip(),
+                'latitude': request.form.get('latitude', ''),
+                'longitude': request.form.get('longitude', ''),
+                'category': request.form.get('category', ''),
+                'interests': interests_json,
+                'price': request.form.get('price', '0'),
+                'max_participants': request.form.get('max_participants', ''),
+                'date': request.form.get('date', ''),
+                'time': request.form.get('time', ''),
+                'interests_display': interests_input
+            }
+            
+            validation_errors = validate_event_data(form_data)
+            if validation_errors:
+                for error in validation_errors:
+                    flash(error, 'error')
+                categories = db.session.query(Event.category).distinct().all()
+                categories = [cat[0] for cat in categories]
+                # Создаем временный объект для передачи в шаблон
+                temp_event = type('obj', (object,), {
+                    'id': event.id,
+                    'title': form_data['title'],
+                    'description': form_data['description'],
+                    'location': form_data['location'],
+                    'latitude': form_data['latitude'],
+                    'longitude': form_data['longitude'],
+                    'category': form_data['category'],
+                    'price': form_data['price'],
+                    'max_participants': form_data['max_participants'],
+                    'date': datetime.strptime(form_data['date'], '%Y-%m-%d').date() if form_data['date'] else event.date,
+                    'time': datetime.strptime(form_data['time'], '%H:%M').time() if form_data['time'] else event.time
+                })()
+                return render_template('edit_event.html', event=temp_event, categories=categories, interests_display=form_data['interests_display'])
+            
+            event.title = form_data['title']
+            event.description = form_data['description']
+            event.date = datetime.strptime(form_data['date'], '%Y-%m-%d').date()
+            event.time = datetime.strptime(form_data['time'], '%H:%M').time()
+            event.location = form_data['location']
+            event.latitude = float(form_data['latitude'])
+            event.longitude = float(form_data['longitude'])
+            event.category = form_data['category']
+            event.interests = form_data['interests']
+            event.price = float(form_data['price']) if form_data['price'] else 0.0
+            event.max_participants = int(form_data['max_participants']) if form_data['max_participants'] else None
             
             db.session.commit()
             
@@ -1039,11 +1115,20 @@ def validate_event_data(data):
     if not data.get('title') or len(data['title'].strip()) < 3:
         errors.append('Название события должно содержать минимум 3 символа')
     
+    if len(data.get('title', '').strip()) > 200:
+        errors.append('Название события не должно превышать 200 символов')
+    
     if not data.get('description') or len(data['description'].strip()) < 10:
         errors.append('Описание должно содержать минимум 10 символов')
     
+    if len(data.get('description', '').strip()) > 5000:
+        errors.append('Описание не должно превышать 5000 символов')
+    
     if not data.get('location') or len(data['location'].strip()) < 3:
         errors.append('Место проведения должно содержать минимум 3 символа')
+    
+    if len(data.get('location', '').strip()) > 500:
+        errors.append('Место проведения не должно превышать 500 символов')
     
     try:
         lat = float(data.get('latitude', 0))
@@ -1059,16 +1144,21 @@ def validate_event_data(data):
         price = float(data.get('price', 0))
         if price < 0:
             errors.append('Цена не может быть отрицательной')
+        if price > 999999:
+            errors.append('Цена не может превышать 999999 BYN')
     except (ValueError, TypeError):
         errors.append('Цена должна быть числом')
     
     try:
-        max_participants = int(data.get('max_participants', 0))
-        if max_participants < 0:
-            errors.append('Максимальное количество участников не может быть отрицательным')
+        if data.get('max_participants'):
+            max_participants = int(data.get('max_participants'))
+            if max_participants < 1:
+                errors.append('Максимальное количество участников должно быть больше 0')
+            if max_participants > 100000:
+                errors.append('Максимальное количество участников не может превышать 100000')
     except (ValueError, TypeError):
         if data.get('max_participants'):
-            errors.append('Максимальное количество участников должно быть числом')
+            errors.append('Максимальное количество участников должно быть целым числом')
     
     try:
         interests = json.loads(data.get('interests', '[]'))
@@ -1076,6 +1166,8 @@ def validate_event_data(data):
             errors.append('Интересы должны быть массивом')
         elif len(interests) == 0:
             errors.append('Необходимо указать хотя бы один интерес')
+        elif len(interests) > 20:
+            errors.append('Максимум 20 интересов')
     except json.JSONDecodeError:
         errors.append('Интересы должны быть в формате JSON массива')
     
