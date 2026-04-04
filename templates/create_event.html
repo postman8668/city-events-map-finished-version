@@ -7,8 +7,13 @@
     <div class="col-lg-8">
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
+                {% if session.username == 'admin' %}
                 <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Админ-панель</a></li>
                 <li class="breadcrumb-item"><a href="{{ url_for('admin_events') }}">События</a></li>
+                {% else %}
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Главная</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('my_events') }}">Мои события</a></li>
+                {% endif %}
                 <li class="breadcrumb-item active">Создание события</li>
             </ol>
         </nav>
@@ -116,9 +121,15 @@
                         <button type="submit" class="btn btn-success flex-fill">
                             <i class="fas fa-save me-1"></i>Создать событие
                         </button>
+                        {% if session.username == 'admin' %}
                         <a href="{{ url_for('admin_events') }}" class="btn btn-outline-secondary flex-fill">
                             <i class="fas fa-times me-1"></i>Отмена
                         </a>
+                        {% else %}
+                        <a href="{{ url_for('my_events') }}" class="btn btn-outline-secondary flex-fill">
+                            <i class="fas fa-times me-1"></i>Отмена
+                        </a>
+                        {% endif %}
                     </div>
                 </form>
             </div>
