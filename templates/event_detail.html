@@ -57,9 +57,19 @@
                 </div>
                 
                 <div class="d-grid gap-2 d-md-flex justify-content-md-start">
+                    {% if is_participant %}
+                    <button class="btn btn-danger" onclick="unsaveEvent({{ event.id }})">
+                        <i class="fas fa-times me-1"></i>Отказаться
+                    </button>
+                    {% elif is_full %}
+                    <button class="btn btn-outline-secondary" disabled>
+                        <i class="fas fa-users me-1"></i>Все места заняты
+                    </button>
+                    {% else %}
                     <button class="btn btn-success" onclick="saveEvent({{ event.id }})">
                         <i class="fas fa-user-plus me-1"></i>Присоединиться
                     </button>
+                    {% endif %}
                     <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
                         <i class="fas fa-arrow-left me-1"></i>Назад к списку
                     </a>
@@ -139,29 +149,36 @@
                 {% endif %}
                 
                 {% if session.user_id %}
-                <div class="mt-4">
-                    <h6>Оставить отзыв</h6>
-                    <form id="reviewForm">
-                        <div class="mb-3">
-                            <label for="rating" class="form-label">Оценка</label>
-                            <select class="form-select" id="rating" required>
-                                <option value="">Выберите оценку</option>
-                                <option value="5">5 - Отлично</option>
-                                <option value="4">4 - Хорошо</option>
-                                <option value="3">3 - Удовлетворительно</option>
-                                <option value="2">2 - Плохо</option>
-                                <option value="1">1 - Очень плохо</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="comment" class="form-label">Комментарий</label>
-                            <textarea class="form-control" id="comment" rows="3" placeholder="Ваш отзыв о событии..."></textarea>
-                        </div>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-paper-plane me-1"></i>Отправить отзыв
-                        </button>
-                    </form>
-                </div>
+                    {% if user_review %}
+                    <div class="alert alert-info mt-4">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Вы уже оставили отзыв на это событие. Вы можете отредактировать или удалить его выше.
+                    </div>
+                    {% else %}
+                    <div class="mt-4">
+                        <h6>Оставить отзыв</h6>
+                        <form id="reviewForm">
+                            <div class="mb-3">
+                                <label for="rating" class="form-label">Оценка</label>
+                                <select class="form-select" id="rating" required>
+                                    <option value="">Выберите оценку</option>
+                                    <option value="5">5 - Отлично</option>
+                                    <option value="4">4 - Хорошо</option>
+                                    <option value="3">3 - Удовлетворительно</option>
+                                    <option value="2">2 - Плохо</option>
+                                    <option value="1">1 - Очень плохо</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="comment" class="form-label">Комментарий</label>
+                                <textarea class="form-control" id="comment" rows="3" placeholder="Ваш отзыв о событии..."></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-paper-plane me-1"></i>Отправить отзыв
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
                 {% else %}
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle me-2"></i>
@@ -209,42 +226,45 @@
 
 {% block scripts %}
 <script>
-    document.getElementById('reviewForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        const rating = document.getElementById('rating').value;
-        const comment = document.getElementById('comment').value;
-        
-        if (!rating) {
-            showToast('Пожалуйста, выберите оценку', 'warning');
-            return;
-        }
-        
-        fetch('/add_review', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                event_id: {{ event.id }},
-                rating: parseInt(rating),
-                comment: comment
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast(data.message, 'success');
-                location.reload();
-            } else {
-                showToast(data.message, 'error');
+    const reviewForm = document.getElementById('reviewForm');
+    if (reviewForm) {
+        reviewForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const rating = document.getElementById('rating').value;
+            const comment = document.getElementById('comment').value;
+            
+            if (!rating) {
+                showToast('Пожалуйста, выберите оценку', 'warning');
+                return;
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            showToast('Ошибка при отправке отзыва', 'error');
+            
+            fetch('/add_review', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    event_id: {{ event.id }},
+                    rating: parseInt(rating),
+                    comment: comment
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    location.reload();
+                } else {
+                    showToast(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showToast('Ошибка при отправке отзыва', 'error');
+            });
         });
-    });
+    }
     
     function saveEvent(eventId) {
         {% if not session.user_id %}
@@ -265,6 +285,8 @@
         .then(data => {
             if (data.success) {
                 showToast(data.message, 'success');
+                // Перезагружаем страницу чтобы обновить кнопку
+                setTimeout(() => location.reload(), 1000);
             } else {
                 showToast(data.message, 'error');
             }
@@ -272,6 +294,32 @@
         .catch(error => {
             console.error('Error:', error);
             showToast('Ошибка при сохранении события', 'error');
+        });
+    }
+    
+    function unsaveEvent(eventId) {
+        fetch('/unsave_event', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                event_id: eventId
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+                // Перезагружаем страницу чтобы обновить кнопку
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showToast(data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showToast('Ошибка при отказе от участия', 'error');
         });
     }
     

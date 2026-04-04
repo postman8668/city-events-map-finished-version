@@ -217,6 +217,13 @@ def index():
 
     events = Event.query.filter_by(status='approved').order_by(Event.date, Event.time).all()
 
+    # Получаем список ID событий, в которых участвует текущий пользователь
+    user_id = session.get('user_id')
+    user_event_ids = set()
+    if user_id:
+        saved_events = SavedEvent.query.filter_by(user_id=user_id).all()
+        user_event_ids = {se.event_id for se in saved_events}
+
     events_data = []
     for event in events:
         events_data.append({
@@ -256,14 +263,22 @@ def index():
     for i, event in enumerate(events[:3]):
         print(f"  Event {i+1}: {event.title} - lat: {event.latitude}, lng: {event.longitude}")
     
-    user_id = session.get('user_id')
     log_event('INFO', f'Посещение главной страницы. Событий: {len(events)}, категорий: {len(categories)}', 
               user_id, request)
     
     # Передаем текущую дату в шаблон
     today = date.today()
     
-    return render_template('index.html', events=events, categories=categories, interests=interests, events_json=events_data, today=today)
+    # Создаем словарь с информацией о заполненности событий
+    event_full_status = {}
+    for event in events:
+        if event.max_participants:
+            current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
+            event_full_status[event.id] = current_participants >= event.max_participants
+        else:
+            event_full_status[event.id] = False
+    
+    return render_template('index.html', events=events, categories=categories, interests=interests, events_json=events_data, today=today, user_event_ids=user_event_ids, event_full_status=event_full_status)
 
 @app.route('/api/events')
 def api_events():
@@ -311,8 +326,25 @@ def api_events():
         for event in events:
             print(f"  - {event.title} (category: {event.category}, lat: {event.latitude}, lng: {event.longitude})")
         
+        # Получаем список ID событий, в которых участвует текущий пользователь
+        user_id = session.get('user_id')
+        user_event_ids = set()
+        if user_id:
+            saved_events = SavedEvent.query.filter_by(user_id=user_id).all()
+            user_event_ids = {se.event_id for se in saved_events}
+        
         events_data = []
+        today = date.today()
         for event in events:
+            is_past = event.date < today
+            is_participant = event.id in user_event_ids
+            
+            # Проверяем, заполнено ли событие
+            is_full = False
+            if event.max_participants:
+                current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
+                is_full = current_participants >= event.max_participants
+            
             events_data.append({
                 'id': event.id,
                 'title': event.title,
@@ -325,7 +357,10 @@ def api_events():
                 'category': event.category,
                 'interests': event.interests,
                 'price': float(event.price) if event.price else 0,
-                'max_participants': event.max_participants
+                'max_participants': event.max_participants,
+                'is_past': is_past,
+                'is_participant': is_participant,
+                'is_full': is_full
             })
         
         return jsonify(events_data)
@@ -342,7 +377,29 @@ def event_detail(event_id):
     if reviews:
         avg_rating = sum(review.rating for review in reviews) / len(reviews)
     
-    return render_template('event_detail.html', event=event, reviews=reviews, avg_rating=avg_rating)
+    # Проверяем участие пользователя в событии
+    is_participant = False
+    if session.get('user_id'):
+        is_participant = SavedEvent.query.filter_by(
+            user_id=session['user_id'],
+            event_id=event_id
+        ).first() is not None
+    
+    # Проверяем, заполнено ли событие
+    is_full = False
+    if event.max_participants:
+        current_participants = SavedEvent.query.filter_by(event_id=event_id).count()
+        is_full = current_participants >= event.max_participants
+    
+    # Проверяем, есть ли уже отзыв от текущего пользователя
+    user_review = None
+    if session.get('user_id'):
+        user_review = Review.query.filter_by(
+            user_id=session['user_id'],
+            event_id=event_id
+        ).first()
+    
+    return render_template('event_detail.html', event=event, reviews=reviews, avg_rating=avg_rating, is_participant=is_participant, user_review=user_review, is_full=is_full)
 
 @app.route('/add_review', methods=['POST'])
 @login_required
@@ -428,6 +485,12 @@ def save_event():
     existing = SavedEvent.query.filter_by(user_id=session['user_id'], event_id=data['event_id']).first()
     if existing:
         return jsonify({'success': False, 'message': 'Вы уже присоединились к этому событию!'})
+    
+    # Проверяем лимит участников
+    if event and event.max_participants:
+        current_participants = SavedEvent.query.filter_by(event_id=data['event_id']).count()
+        if current_participants >= event.max_participants:
+            return jsonify({'success': False, 'message': 'К сожалению, все места на это событие уже заняты!'})
     
     saved_event = SavedEvent(user_id=session['user_id'], event_id=data['event_id'])
     db.session.add(saved_event)
@@ -884,6 +947,28 @@ def edit_event(event_id):
                 })()
                 return render_template('edit_event.html', event=temp_event, categories=categories, interests_display=form_data['interests_display'])
             
+            # Проверяем были ли изменения
+            has_changes = (
+                event.title != form_data['title'] or
+                event.description != form_data['description'] or
+                event.date != datetime.strptime(form_data['date'], '%Y-%m-%d').date() or
+                event.time != datetime.strptime(form_data['time'], '%H:%M').time() or
+                event.location != form_data['location'] or
+                float(event.latitude) != float(form_data['latitude']) or
+                float(event.longitude) != float(form_data['longitude']) or
+                event.category != form_data['category'] or
+                event.interests != form_data['interests'] or
+                float(event.price or 0) != float(form_data['price'] or 0) or
+                (event.max_participants or 0) != (int(form_data['max_participants']) if form_data['max_participants'] else 0)
+            )
+            
+            if not has_changes:
+                # Просто возвращаемся без уведомления
+                if user.username == 'admin':
+                    return redirect(url_for('admin_events'))
+                else:
+                    return redirect(url_for('my_events'))
+            
             event.title = form_data['title']
             event.description = form_data['description']
             event.date = datetime.strptime(form_data['date'], '%Y-%m-%d').date()
@@ -894,7 +979,27 @@ def edit_event(event_id):
             event.category = form_data['category']
             event.interests = form_data['interests']
             event.price = float(form_data['price']) if form_data['price'] else 0.0
-            event.max_participants = int(form_data['max_participants']) if form_data['max_participants'] else None
+            
+            # Обработка изменения количества участников
+            new_max_participants = int(form_data['max_participants']) if form_data['max_participants'] else None
+            old_max_participants = event.max_participants
+            
+            event.max_participants = new_max_participants
+            
+            # Если уменьшили лимит участников, удаляем лишних
+            if new_max_participants is not None:
+                current_participants = SavedEvent.query.filter_by(event_id=event.id).order_by(SavedEvent.saved_at).all()
+                if len(current_participants) > new_max_participants:
+                    # Удаляем последних присоединившихся (превышающих лимит)
+                    excess_participants = current_participants[new_max_participants:]
+                    removed_count = 0
+                    for participant in excess_participants:
+                        db.session.delete(participant)
+                        removed_count += 1
+                    
+                    if removed_count > 0:
+                        flash(f'Внимание: из-за уменьшения лимита участников было удалено {removed_count} последних присоединившихся участников.', 'warning')
+                        log_event('WARNING', f'При редактировании события {event.title} удалено {removed_count} участников из-за уменьшения лимита', user.id, request)
             
             # Если редактирует обычный пользователь - отправляем на модерацию
             if user.username != 'admin':
