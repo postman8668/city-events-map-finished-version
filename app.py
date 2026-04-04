@@ -896,10 +896,16 @@ def edit_event(event_id):
             event.price = float(form_data['price']) if form_data['price'] else 0.0
             event.max_participants = int(form_data['max_participants']) if form_data['max_participants'] else None
             
-            db.session.commit()
+            # Если редактирует обычный пользователь - отправляем на модерацию
+            if user.username != 'admin':
+                event.status = 'pending'
+                flash('Изменения отправлены на модерацию. После проверки администратором они будут опубликованы.', 'info')
+                log_event('INFO', f'Пользователь {user.username} отредактировал событие: {event.title} (отправлено на модерацию)', user.id, request)
+            else:
+                flash('Событие успешно обновлено!', 'success')
+                log_event('INFO', f'Администратор {user.username} обновил событие: {event.title}', user.id, request)
             
-            flash('Событие успешно обновлено!', 'success')
-            log_event('INFO', f'Пользователь {user.username} обновил событие: {event.title}', user.id, request)
+            db.session.commit()
             
             if user.username == 'admin':
                 return redirect(url_for('admin_events'))
