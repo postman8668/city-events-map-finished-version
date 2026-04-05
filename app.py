@@ -88,6 +88,20 @@ def ensure_database_seeded():
                         price=0.0,
                         max_participants=30,
                         status='approved'
+                    ),
+                    Event(
+                        title='Квест по городу',
+                        description='Увлекательный городской квест с призами для команд',
+                        date=date(current_year, 12, 28),
+                        time=dtime(14, 0),
+                        location='Площадь Свободы, Полоцк',
+                        latitude=55.486500,
+                        longitude=28.769000,
+                        category='Развлечение',
+                        interests='["квест", "игры", "развлечения", "команда"]',
+                        price=12.0,
+                        max_participants=50,
+                        status='approved'
                     )
                 ]
                 for ev in seed_events:
