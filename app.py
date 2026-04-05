@@ -308,15 +308,18 @@ def index():
     categories = [cat[0] for cat in categories]
     
     # Получаем все уникальные интересы из всех событий
-    all_interests = set()
+    all_interests = {}
     for event in all_events:
         try:
             interests = json.loads(event.interests)
             if isinstance(interests, list):
-                all_interests.update(interests)
+                for interest in interests:
+                    interest_lower = interest.lower()
+                    if interest_lower not in all_interests:
+                        all_interests[interest_lower] = interest
         except:
             pass
-    interests = sorted(list(all_interests))
+    interests = sorted(list(all_interests.values()), key=str.lower)
     
     print(f"Total events in database: {len(all_events)}")
     print(f"Events loaded on index: {len(events)}")
@@ -878,8 +881,7 @@ def create_event():
             # Обработка интересов: преобразуем слова через запятую в JSON массив
             interests_input = request.form.get('interests', '').strip()
             if interests_input:
-                # Разделяем по запятой, убираем пробелы, фильтруем пустые
-                interests_list = [interest.strip() for interest in interests_input.split(',') if interest.strip()]
+                interests_list = [interest.strip().lower() for interest in interests_input.split(',') if interest.strip()]
                 interests_json = json.dumps(interests_list, ensure_ascii=False)
             else:
                 interests_json = '[]'
@@ -978,7 +980,7 @@ def edit_event(event_id):
             # Обработка интересов: преобразуем слова через запятую в JSON массив
             interests_input = request.form.get('interests', '').strip()
             if interests_input:
-                interests_list = [interest.strip() for interest in interests_input.split(',') if interest.strip()]
+                interests_list = [interest.strip().lower() for interest in interests_input.split(',') if interest.strip()]
                 interests_json = json.dumps(interests_list, ensure_ascii=False)
             else:
                 interests_json = '[]'
