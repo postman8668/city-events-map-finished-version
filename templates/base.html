@@ -338,6 +338,9 @@
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-tachometer-alt me-1"></i>Админ
+                            {% if pending_events_count > 0 %}
+                            <span class="badge bg-danger ms-1">{{ pending_events_count }}</span>
+                            {% endif %}
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="adminDropdown">
                             <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}">
@@ -345,6 +348,9 @@
                             </a></li>
                             <li><a class="dropdown-item" href="{{ url_for('admin_events') }}">
                                 <i class="fas fa-calendar-alt me-1"></i>События
+                                {% if pending_events_count > 0 %}
+                                <span class="badge bg-danger ms-1">{{ pending_events_count }}</span>
+                                {% endif %}
                             </a></li>
                             <li><a class="dropdown-item" href="{{ url_for('admin_users') }}">
                                 <i class="fas fa-users me-1"></i>Пользователи

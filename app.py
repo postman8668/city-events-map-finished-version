@@ -1,11 +1,13 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from datetime import datetime, date, timezone, timedelta
 import os
 import json
 from functools import wraps
 from threading import Lock
+import uuid
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -15,6 +17,17 @@ default_db_path = os.path.join(base_dir, 'events.db')
 db_uri_path = instance_db_path if os.path.exists(instance_db_path) else default_db_path
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_uri_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Настройки для загрузки файлов
+UPLOAD_FOLDER = os.path.join(base_dir, 'static', 'uploads', 'events')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+
+# Создаем папку для загрузок, если её нет
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 db = SQLAlchemy(app)
 _init_lock = Lock()
@@ -90,6 +103,31 @@ def belarus_now():
     belarus_tz = timezone(timedelta(hours=3))
     return datetime.now(belarus_tz)
 
+def allowed_file(filename):
+    """Проверяет, разрешено ли расширение файла"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def save_event_image(file):
+    """Сохраняет изображение события и возвращает имя файла"""
+    if file and allowed_file(file.filename):
+        # Генерируем уникальное имя файла
+        ext = file.filename.rsplit('.', 1)[1].lower()
+        filename = f"{uuid.uuid4().hex}.{ext}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        return filename
+    return None
+
+def delete_event_image(filename):
+    """Удаляет изображение события"""
+    if filename:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Ошибка при удалении файла {filename}: {e}")
+
 @app.template_filter('from_json')
 def from_json_filter(value):
     try:
@@ -148,6 +186,7 @@ class Event(db.Model):
     created_at = db.Column(db.DateTime, default=belarus_now)
     status = db.Column(db.String(20), default='pending', nullable=False)  # pending, approved, rejected
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    image_filename = db.Column(db.String(255), nullable=True)  # Имя файла изображения
     
     reviews = db.relationship('Review', backref='event', lazy=True, cascade='all, delete-orphan')
     saved_events = db.relationship('SavedEvent', backref='event', lazy=True, cascade='all, delete-orphan')
@@ -209,6 +248,16 @@ class LogEntry(db.Model):
     user_agent = db.Column(db.String(500), nullable=True)
     route = db.Column(db.String(200), nullable=True)
     method = db.Column(db.String(10), nullable=True)
+
+@app.context_processor
+def inject_pending_count():
+    """Добавляет количество событий на модерации во все шаблоны"""
+    pending_count = 0
+    if session.get('user_id'):
+        user = db.session.get(User, session.get('user_id'))
+        if user and user.username == 'admin':
+            pending_count = Event.query.filter_by(status='pending').count()
+    return dict(pending_events_count=pending_count)
 
 @app.route('/')
 def index():
@@ -848,6 +897,15 @@ def create_event():
             # Админ создает события сразу одобренными, остальные - на модерации
             status = 'approved' if user.username == 'admin' else 'pending'
             
+            # Обработка загрузки изображения
+            image_filename = None
+            if 'image' in request.files:
+                file = request.files['image']
+                if file and file.filename:
+                    image_filename = save_event_image(file)
+                    if not image_filename:
+                        flash('Неподдерживаемый формат изображения. Разрешены: PNG, JPG, JPEG, GIF, WEBP', 'warning')
+            
             event = Event(
                 title=form_data['title'],
                 description=form_data['description'],
@@ -861,7 +919,8 @@ def create_event():
                 price=float(form_data['price']),
                 max_participants=int(form_data['max_participants']) if form_data['max_participants'] else None,
                 status=status,
-                creator_id=user.id
+                creator_id=user.id,
+                image_filename=image_filename
             )
             
             db.session.add(event)
@@ -947,7 +1006,13 @@ def edit_event(event_id):
                 })()
                 return render_template('edit_event.html', event=temp_event, categories=categories, interests_display=form_data['interests_display'])
             
-            # Проверяем были ли изменения
+            # Проверяем были ли изменения (включая изображение)
+            image_changed = False
+            if 'image' in request.files:
+                file = request.files['image']
+                if file and file.filename:
+                    image_changed = True
+            
             has_changes = (
                 event.title != form_data['title'] or
                 event.description != form_data['description'] or
@@ -959,7 +1024,9 @@ def edit_event(event_id):
                 event.category != form_data['category'] or
                 event.interests != form_data['interests'] or
                 float(event.price or 0) != float(form_data['price'] or 0) or
-                (event.max_participants or 0) != (int(form_data['max_participants']) if form_data['max_participants'] else 0)
+                (event.max_participants or 0) != (int(form_data['max_participants']) if form_data['max_participants'] else 0) or
+                image_changed or
+                ('remove_image' in request.form and event.image_filename)
             )
             
             if not has_changes:
@@ -968,6 +1035,24 @@ def edit_event(event_id):
                     return redirect(url_for('admin_events'))
                 else:
                     return redirect(url_for('my_events'))
+            
+            # Обработка изображения
+            if 'remove_image' in request.form and event.image_filename:
+                # Удаляем старое изображение
+                delete_event_image(event.image_filename)
+                event.image_filename = None
+            elif 'image' in request.files:
+                file = request.files['image']
+                if file and file.filename:
+                    # Удаляем старое изображение, если есть
+                    if event.image_filename:
+                        delete_event_image(event.image_filename)
+                    # Сохраняем новое
+                    new_image = save_event_image(file)
+                    if new_image:
+                        event.image_filename = new_image
+                    else:
+                        flash('Неподдерживаемый формат изображения. Разрешены: PNG, JPG, JPEG, GIF, WEBP', 'warning')
             
             event.title = form_data['title']
             event.description = form_data['description']
@@ -1047,10 +1132,15 @@ def delete_event(event_id):
     
     event = Event.query.get_or_404(event_id)
     event_title = event.title
+    event_image = event.image_filename
     
     try:
         db.session.delete(event)
         db.session.commit()
+        
+        # Удаляем изображение, если оно есть
+        if event_image:
+            delete_event_image(event_image)
         
         flash('Событие успешно удалено!', 'success')
         log_event('INFO', f'Админ {user.username} удалил событие: {event_title}', user.id, request)

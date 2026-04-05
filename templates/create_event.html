@@ -22,7 +22,7 @@
         
         <div class="card">
             <div class="card-body">
-                <form method="POST">
+                <form method="POST" enctype="multipart/form-data">
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -48,6 +48,20 @@
                         <label for="description" class="form-label">Описание *</label>
                         <textarea class="form-control" id="description" name="description" rows="4" required minlength="10" maxlength="5000">{{ form_data.description if form_data else '' }}</textarea>
                         <div class="form-text">От 10 до 5000 символов</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="image" class="form-label">Изображение события</label>
+                        <input type="file" class="form-control" id="image" name="image" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
+                        <div class="form-text">
+                            Форматы: PNG, JPG, JPEG, GIF, WEBP. Максимальный размер: 5 МБ
+                            {% if session.username != 'admin' %}
+                            <br><small class="text-info"><i class="fas fa-info-circle"></i> Событие с изображением будет отправлено на модерацию</small>
+                            {% endif %}
+                        </div>
+                        <div id="imagePreview" class="mt-2" style="display: none;">
+                            <img id="previewImg" src="" alt="Предпросмотр" style="max-width: 300px; max-height: 200px; border-radius: 8px;">
+                        </div>
                     </div>
                     
                     <div class="row g-3">
@@ -182,15 +196,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Границы Полоцкого района и Новополоцка
     const bounds = L.latLngBounds(
-        [55.40, 28.60],  // Юго-западный угол
-        [55.60, 28.90]   // Северо-восточный угол
+        [55.40, 28.45],  // Юго-западный угол (расширено влево)
+        [55.60, 29.05]   // Северо-восточный угол (расширено вправо)
     );
     
-    // Инициализация карты с жесткими ограничениями
+    // Границы с отступами для размещения меток (отступ 0.04 сверху/снизу, 0.06 слева/справа)
+    const markerBounds = L.latLngBounds(
+        [55.44, 28.51],  // Юго-западный угол с отступом
+        [55.56, 28.99]   // Северо-восточный угол с отступом
+    );
+    
+    // Инициализация карты с ограничением по исходным границам
     const map = L.map('map', {
         center: [55.485, 28.768],
         zoom: 12,
-        maxBounds: bounds,           // Ограничение перемещения
+        maxBounds: bounds,           // Ограничение по исходным границам области
         maxBoundsViscosity: 1.0,     // "Жесткость" границ
         minZoom: 11,                 // Минимальный зум (чтобы видеть оба города)
         maxZoom: 18,                 // Максимальный зум
@@ -229,9 +249,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     let marker = null;
     
-    // Функция проверки, находится ли точка в допустимых границах
+    // Функция проверки, находится ли точка в допустимых границах (с отступами)
     function isWithinBounds(lat, lng) {
-        return bounds.contains([lat, lng]);
+        return markerBounds.contains([lat, lng]);
     }
     
     // Функция для получения адреса по координатам (обратное геокодирование)
@@ -362,6 +382,21 @@ document.addEventListener('DOMContentLoaded', function() {
             
             marker.bindPopup(`<b>Место события</b><br>Координаты: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
         }
+    }
+});
+
+// Предпросмотр изображения
+document.getElementById('image').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('previewImg').src = e.target.result;
+            document.getElementById('imagePreview').style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    } else {
+        document.getElementById('imagePreview').style.display = 'none';
     }
 });
 </script>

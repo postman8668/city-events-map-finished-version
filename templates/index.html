@@ -53,6 +53,12 @@
         <div id="eventsList">
             {% for event in events %}
             <div class="card event-card">
+                {% if event.image_filename %}
+                <img src="{{ url_for('static', filename='uploads/events/' + event.image_filename) }}" 
+                     class="card-img-top" 
+                     alt="{{ event.title }}"
+                     style="height: 200px; object-fit: contain; background-color: #f8f9fa;">
+                {% endif %}
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-8">
@@ -77,7 +83,6 @@
                                 <i class="fas fa-clock ms-3 me-1"></i>{{ event.time.strftime('%H:%M') }}
                                 <i class="fas fa-map-marker-alt ms-3 me-1"></i>{{ event.location }}
                             </div>
-                            
                             {% set is_past = event.date < today %}
                             
                             {% if is_past %}
@@ -170,15 +175,15 @@
         
         // Границы Полоцкого района и Новополоцка
         const bounds = L.latLngBounds(
-            [55.40, 28.60],  // Юго-западный угол
-            [55.60, 28.90]   // Северо-восточный угол
+            [55.40, 28.45],  // Юго-западный угол (расширено влево)
+            [55.60, 29.05]   // Северо-восточный угол (расширено вправо)
         );
         
-        // Инициализация карты с жесткими ограничениями
+        // Инициализация карты с ограничением по исходным границам
         map = L.map('map', {
             center: [55.515, 28.700],
             zoom: 12,
-            maxBounds: bounds,           // Ограничение перемещения
+            maxBounds: bounds,           // Ограничение по исходным границам области
             maxBoundsViscosity: 1.0,     // "Жесткость" границ
             minZoom: 11,                 // Минимальный зум (чтобы видеть оба города)
             maxZoom: 18,                 // Максимальный зум
@@ -194,25 +199,8 @@
         });
         
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 18,
-            bounds: bounds  // Ограничение загрузки тайлов
+            maxZoom: 18
         }).addTo(map);
-        
-        // Принудительное возвращение карты в границы при любом перемещении
-        map.on('drag', function() {
-            map.panInsideBounds(bounds, { animate: false });
-        });
-        
-        map.on('zoom', function() {
-            map.panInsideBounds(bounds, { animate: false });
-        });
-        
-        // Дополнительная проверка каждые 100мс
-        setInterval(function() {
-            if (map && !bounds.contains(map.getCenter())) {
-                map.panInsideBounds(bounds, { animate: false });
-            }
-        }, 100);
         
         console.log('Map initialized successfully');
         if (Array.isArray(initialEvents) && initialEvents.length > 0) {
@@ -316,12 +304,17 @@
                 .bindPopup(`
                     <div>
                         <h6>${event.title}</h6>
-                        <p>${event.description.substring(0, 100)}...</p>
+                        <p>${event.description.substring(0, 100)}${event.description.length > 100 ? '...' : ''}</p>
                         <p><strong>Дата:</strong> ${event.date} в ${event.time}</p>
                         <p><strong>Место:</strong> ${event.location}</p>
                         <a href="/event/${event.id}" class="btn btn-sm btn-primary map-popup-btn">Подробнее</a>
                     </div>
-                `)
+                `, {
+                    maxWidth: 300,
+                    autoPan: true,
+                    autoPanPadding: [50, 50],
+                    keepInView: true
+                })
                 .addTo(map);
             markers.push(marker);
         });

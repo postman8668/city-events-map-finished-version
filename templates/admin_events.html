@@ -6,7 +6,11 @@
 <div class="row">
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1><i class="fas fa-calendar-alt me-2"></i>Управление событиями</h1>
+            <h1><i class="fas fa-calendar-alt me-2"></i>Управление событиями
+                {% if pending_count > 0 %}
+                <span class="badge bg-warning text-dark ms-2">{{ pending_count }} на модерации</span>
+                {% endif %}
+            </h1>
             <a href="{{ url_for('create_event') }}" class="btn btn-success">
                 <i class="fas fa-plus me-1"></i>Создать событие
             </a>
@@ -61,6 +65,11 @@
                                 <td class="d-none d-sm-table-cell">{{ event.id }}</td>
                                 <td>
                                     <a href="{{ url_for('event_detail', event_id=event.id) }}" class="text-decoration-none">
+                                        {% if event.image_filename %}
+                                        <img src="{{ url_for('static', filename='uploads/events/' + event.image_filename) }}" 
+                                             alt="{{ event.title }}" 
+                                             style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px; margin-right: 8px; vertical-align: middle; background-color: #f8f9fa;">
+                                        {% endif %}
                                         {{ event.title }}
                                     </a>
                                     <div class="d-block d-md-none">
