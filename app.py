@@ -363,36 +363,40 @@ def api_events():
             print("No events found in database!")
             return jsonify([])
         
-        query = Event.query.filter_by(status='approved')
+        events = Event.query.filter_by(status='approved').order_by(Event.date, Event.time).all()
         
-        if category and category != 'all':
-            query = query.filter(Event.category == category)
-            print(f"Filtered by category: {category}")
+        filtered_events = []
+        for event in events:
+            match = True
+            
+            if category and category != 'all':
+                if event.category != category:
+                    match = False
+            
+            if interest and match:
+                try:
+                    event_interests = json.loads(event.interests)
+                    if interest not in event_interests:
+                        match = False
+                except:
+                    match = False
+            
+            if search and match:
+                search_lower = search.lower()
+                if not (search_lower in event.title.lower() or 
+                        search_lower in event.description.lower() or 
+                        search_lower in event.location.lower()):
+                    match = False
+            
+            if match:
+                filtered_events.append(event)
         
-        if interest:
-            query = query.filter(Event.interests.contains(f'"{interest}"'))
-            print(f"Filtered by interest: {interest}")
-        
-        events = query.order_by(Event.date, Event.time).all()
-        
-        # Фильтрация по поиску в Python (для корректной работы с кириллицей)
-        if search:
-            search_lower = search.lower()
-            filtered_events = []
-            for event in events:
-                if (search_lower in event.title.lower() or 
-                    search_lower in event.description.lower() or 
-                    search_lower in event.location.lower()):
-                    filtered_events.append(event)
-            events = filtered_events
-            print(f"Filtered by search: {search}, found {len(events)} events")
-        
-        print(f"Found {len(events)} events total")
+        events = filtered_events
+        print(f"Found {len(events)} events after filtering")
         
         for event in events:
-            print(f"  - {event.title} (category: {event.category}, lat: {event.latitude}, lng: {event.longitude})")
+            print(f"  - {event.title} (category: {event.category})")
         
-        # Получаем список ID событий, в которых участвует текущий пользователь
         user_id = session.get('user_id')
         user_event_ids = set()
         if user_id:
@@ -405,7 +409,6 @@ def api_events():
             is_past = event.date < today
             is_participant = event.id in user_event_ids
             
-            # Проверяем, заполнено ли событие
             is_full = False
             if event.max_participants:
                 current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
