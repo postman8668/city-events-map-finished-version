@@ -429,7 +429,9 @@ def api_events():
                 'max_participants': event.max_participants,
                 'is_past': is_past,
                 'is_participant': is_participant,
-                'is_full': is_full
+                'is_full': is_full,
+                'creator_id': event.creator_id,
+                'is_my_event': event.creator_id == user_id if user_id else False
             })
         
         return jsonify(events_data)
@@ -907,7 +909,25 @@ def create_event():
                     flash(error, 'error')
                 categories = db.session.query(Event.category).distinct().all()
                 categories = [cat[0] for cat in categories]
-                # Передаем данные формы обратно для сохранения введенных значений
+                form_data['date'] = request.form.get('date', '')
+                form_data['time'] = request.form.get('time', '')
+                form_data['interests_display'] = interests_input
+                return render_template('create_event.html', categories=categories, form_data=form_data)
+            
+            # Проверка на дубликаты
+            event_date = datetime.strptime(request.form['date'], '%Y-%m-%d').date()
+            event_time = datetime.strptime(request.form['time'], '%H:%M').time()
+            duplicate = Event.query.filter_by(
+                title=form_data['title'],
+                date=event_date,
+                time=event_time,
+                location=form_data['location']
+            ).first()
+            
+            if duplicate:
+                flash('Событие с таким названием, датой, временем и местом уже существует!', 'error')
+                categories = db.session.query(Event.category).distinct().all()
+                categories = [cat[0] for cat in categories]
                 form_data['date'] = request.form.get('date', '')
                 form_data['time'] = request.form.get('time', '')
                 form_data['interests_display'] = interests_input

@@ -302,6 +302,11 @@
             z-index: 2;
             text-shadow: 0 0 3px white, 0 0 3px white;
         }
+        
+        .is-invalid {
+            border-color: #dc3545 !important;
+            box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25) !important;
+        }
     </style>
 </head>
 <body>
@@ -460,6 +465,81 @@
         }
         /* eslint-enable */
     </script>
+    
+    <script>
+        // Валидация форм с подсветкой ошибок
+        document.addEventListener('DOMContentLoaded', function() {
+            const forms = document.querySelectorAll('form');
+            forms.forEach(form => {
+                form.addEventListener('submit', function(e) {
+                    let isValid = true;
+                    let firstInvalidField = null;
+                    
+                    // Удаляем предыдущие классы ошибок и сообщения
+                    form.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+                    form.querySelectorAll('.invalid-feedback').forEach(el => el.remove());
+                    
+                    // Проверяем все required поля
+                    form.querySelectorAll('[required]').forEach(field => {
+                        if (!field.value || field.value.trim() === '' || field.value === '') {
+                            field.classList.add('is-invalid');
+                            isValid = false;
+                            if (!firstInvalidField) firstInvalidField = field;
+                        }
+                    });
+                    
+                    // Проверяем поле цены
+                    const priceField = form.querySelector('#price');
+                    if (priceField) {
+                        const priceValue = parseFloat(priceField.value);
+                        if (isNaN(priceValue) || priceValue < 0) {
+                            priceField.classList.add('is-invalid');
+                            const errorDiv = document.createElement('div');
+                            errorDiv.className = 'invalid-feedback d-block';
+                            errorDiv.textContent = 'Цена должна быть числом (0 или больше)';
+                            priceField.parentNode.appendChild(errorDiv);
+                            isValid = false;
+                            if (!firstInvalidField) firstInvalidField = priceField;
+                        } else if (priceValue > 999999) {
+                            priceField.classList.add('is-invalid');
+                            const errorDiv = document.createElement('div');
+                            errorDiv.className = 'invalid-feedback d-block';
+                            errorDiv.textContent = 'Цена не может превышать 999999 BYN';
+                            priceField.parentNode.appendChild(errorDiv);
+                            isValid = false;
+                            if (!firstInvalidField) firstInvalidField = priceField;
+                        }
+                    }
+                    
+                    // Прокручиваем к первому невалидному полю
+                    if (!isValid && firstInvalidField) {
+                        e.preventDefault();
+                        firstInvalidField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        setTimeout(() => firstInvalidField.focus(), 500);
+                    }
+                });
+                
+                // Убираем подсветку при вводе
+                form.querySelectorAll('[required], #price').forEach(field => {
+                    field.addEventListener('input', function() {
+                        if (this.value && this.value.trim() !== '') {
+                            this.classList.remove('is-invalid');
+                            const errorMsg = this.parentNode.querySelector('.invalid-feedback');
+                            if (errorMsg) errorMsg.remove();
+                        }
+                    });
+                    field.addEventListener('change', function() {
+                        if (this.value && this.value.trim() !== '') {
+                            this.classList.remove('is-invalid');
+                            const errorMsg = this.parentNode.querySelector('.invalid-feedback');
+                            if (errorMsg) errorMsg.remove();
+                        }
+                    });
+                });
+            });
+        });
+    </script>
+    
     {% block scripts %}{% endblock %}
 </body>
 </html>

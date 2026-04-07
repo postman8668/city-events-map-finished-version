@@ -118,16 +118,16 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="latitude" class="form-label">Широта *</label>
-                                <input type="number" class="form-control" id="latitude" name="latitude" 
-                                       step="any" min="-90" max="90" value="{{ event.latitude }}" required readonly>
+                                <input type="hidden" id="latitude" name="latitude" value="{{ event.latitude }}" required>
+                                <input type="number" class="form-control" step="any" min="-90" max="90" value="{{ event.latitude }}" readonly>
                                 <div class="form-text">Автоматически заполняется при выборе на карте</div>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="longitude" class="form-label">Долгота *</label>
-                                <input type="number" class="form-control" id="longitude" name="longitude" 
-                                       step="any" min="-180" max="180" value="{{ event.longitude }}" required readonly>
+                                <input type="hidden" id="longitude" name="longitude" value="{{ event.longitude }}" required>
+                                <input type="number" class="form-control" step="any" min="-180" max="180" value="{{ event.longitude }}" readonly>
                                 <div class="form-text">Автоматически заполняется при выборе на карте</div>
                             </div>
                         </div>

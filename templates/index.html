@@ -54,7 +54,7 @@
         
         <div id="eventsList">
             {% for event in events %}
-            <div class="card event-card">
+            <div class="card event-card {% if session.user_id and event.creator_id == session.user_id %}border-primary{% endif %}" {% if session.user_id and event.creator_id == session.user_id %}style="border-width: 2px;"{% endif %}>
                 {% if event.image_filename %}
                 <img src="{{ url_for('static', filename='uploads/events/' + event.image_filename) }}" 
                      class="card-img-top" 
@@ -68,6 +68,9 @@
                                 <a href="/event/{{ event.id }}" class="text-decoration-none">
                                     {{ event.title }}
                                 </a>
+                                {% if session.user_id and event.creator_id == session.user_id %}
+                                <span class="badge bg-success ms-2">Мое событие</span>
+                                {% endif %}
                             </h5>
                             <p class="card-text">{{ event.description[:150] }}{% if event.description|length > 150 %}...{% endif %}</p>
                             
@@ -356,6 +359,12 @@
         const div = document.createElement('div');
         div.className = 'card event-card';
         
+        // Добавляем выделение для своих событий
+        if (event.is_my_event) {
+            div.classList.add('border-primary');
+            div.style.borderWidth = '2px';
+        }
+        
         const interests = JSON.parse(event.interests);
         const interestsHtml = interests.map(interest => 
             `<span class="interest-tag">${interest}</span>`
@@ -365,15 +374,14 @@
             `<span class="badge price-badge">${event.price} BYN</span>` :
             `<span class="badge free-badge">Бесплатно</span>`;
         
-        // Проверяем, прошло ли событие
         const isPast = event.is_past || false;
         const pastBadge = isPast ? '<div class="mt-2"><span class="badge bg-secondary"><i class="fas fa-history me-1"></i>Событие прошло</span></div>' : '';
         
-        // Проверяем, является ли пользователь участником
         const isParticipant = event.is_participant || false;
-        
-        // Проверяем, заполнено ли событие
         const isFull = event.is_full || false;
+        
+        // Бейдж "Мое событие"
+        const myEventBadge = event.is_my_event ? '<span class="badge bg-success ms-2">Мое событие</span>' : '';
         
         let joinButton;
         if (isPast) {
@@ -402,6 +410,7 @@
                             <a href="/event/${event.id}" class="text-decoration-none">
                                 ${event.title}
                             </a>
+                            ${myEventBadge}
                         </h5>
                         <p class="card-text">${event.description.substring(0, 150)}${event.description.length > 150 ? '...' : ''}</p>
                         
