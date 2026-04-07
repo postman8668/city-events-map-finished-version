@@ -12,12 +12,13 @@
         
         <div class="filter-section">
             <h5><i class="fas fa-filter me-2"></i>Фильтры и поиск</h5>
+            <div class="row g-3 mb-3">
+                <div class="col-12">
+                    <input type="text" class="form-control" id="searchInput" placeholder="Введите название или описание мероприятия" oninput="applyFilters()">
+                </div>
+            </div>
             <div class="row g-3">
                 <div class="col-12 col-sm-6 col-md-4">
-                    <label for="searchInput" class="form-label">Поиск:</label>
-                    <input type="text" class="form-control" id="searchInput" placeholder="Название, описание" oninput="applyFilters()">
-                </div>
-                <div class="col-12 col-sm-6 col-md-3">
                     <label for="categoryFilter" class="form-label">Категория:</label>
                     <select class="form-select" id="categoryFilter" onchange="applyFilters()">
                         <option value="all">Все категории</option>
@@ -26,7 +27,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-12 col-sm-6 col-md-3">
+                <div class="col-12 col-sm-6 col-md-4">
                     <label for="interestFilter" class="form-label">Интерес:</label>
                     <select class="form-select" id="interestFilter" onchange="applyFilters()">
                         <option value="">Все интересы</option>
@@ -35,7 +36,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-12 col-sm-6 col-md-2">
+                <div class="col-12 col-sm-6 col-md-4">
                     <label class="form-label">&nbsp;</label>
                     <div class="form-check" style="padding-top: 8px;">
                         <input class="form-check-input" type="checkbox" id="freeOnlyFilter" onchange="applyFilters()">
