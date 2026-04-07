@@ -410,6 +410,7 @@ def api_events():
             is_participant = event.id in user_event_ids
             
             is_full = False
+            current_participants = 0
             if event.max_participants:
                 current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
                 is_full = current_participants >= event.max_participants
@@ -427,6 +428,7 @@ def api_events():
                 'interests': event.interests,
                 'price': float(event.price) if event.price else 0,
                 'max_participants': event.max_participants,
+                'current_participants': current_participants,
                 'is_past': is_past,
                 'is_participant': is_participant,
                 'is_full': is_full,
