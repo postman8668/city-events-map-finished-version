@@ -12,9 +12,14 @@
                 <div class="mb-3">
                     <span class="badge bg-primary me-2">{{ event.category }}</span>
                     {% if event.price > 0 %}
-                    <span class="badge price-badge">{{ event.price }} BYN</span>
+                    <span class="badge price-badge">{{ event.price|round(2)|string|replace('.0', '') }} BYN</span>
                     {% else %}
                     <span class="badge free-badge">Бесплатно</span>
+                    {% endif %}
+                    {% if reviews.total > 0 %}
+                    <span class="badge bg-warning text-dark ms-2">
+                        <i class="fas fa-star"></i> {{ "%.1f"|format(avg_rating) }} ({{ reviews.total }})
+                    </span>
                     {% endif %}
                 </div>
                 
@@ -27,6 +32,11 @@
                         <h5><i class="fas fa-map-marker-alt me-2"></i>Место проведения</h5>
                         <p>{{ event.location }}</p>
                     </div>
+                </div>
+                
+                <div class="mb-4">
+                    <h5><i class="fas fa-user me-2"></i>Организатор</h5>
+                    <p>{{ organizer_name }}</p>
                 </div>
                 
                 <h5>Описание</h5>
@@ -77,18 +87,18 @@
             </div>
         </div>
         
-        <div class="card mt-4">
+        <div class="card mt-4" id="reviews">
             <div class="card-header">
                 <h5 class="mb-0">
                     <i class="fas fa-star me-2"></i>Отзывы
-                    {% if reviews %}
-                    <span class="badge bg-primary ms-2">{{ reviews|length }}</span>
+                    {% if reviews.total > 0 %}
+                    <span class="badge bg-primary ms-2">{{ reviews.total }}</span>
                     {% endif %}
                 </h5>
             </div>
             <div class="card-body">
-                {% if reviews %}
-                    {% for review in reviews %}
+                {% if reviews.items %}
+                    {% for review in reviews.items %}
                     <div class="border-bottom pb-3 mb-3" id="review-{{ review.id }}">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="flex-grow-1">
@@ -105,7 +115,7 @@
                             </div>
                             <div class="text-end">
                                 <small class="text-muted d-block">{{ review.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
-                                {% if session.user_id and (review.user_id == session.user_id or session.username == 'admin') %}
+                                {% if session.user_id and (review.user_id == session.user_id or is_moderator) %}
                                 <div class="mt-2">
                                     <button class="btn btn-sm btn-outline-primary" onclick="editReview({{ review.id }}, {{ review.rating }}, '{{ review.comment|replace("'", "\\'")|replace('"', '\\"') }}')" title="Редактировать">
                                         <i class="fas fa-edit"></i>
@@ -144,6 +154,42 @@
                         </div>
                     </div>
                     {% endfor %}
+                    
+                    <!-- Пагинация отзывов -->
+                    {% if reviews.pages > 1 %}
+                    <nav aria-label="Навигация по отзывам" class="mt-4">
+                        <ul class="pagination justify-content-center">
+                            {% if reviews.has_prev %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('event_detail', event_id=event.id, page=reviews.prev_num) }}#reviews">
+                                    <i class="fas fa-chevron-left"></i> Назад
+                                </a>
+                            </li>
+                            {% endif %}
+                            
+                            {% for page_num in range(1, reviews.pages + 1) %}
+                                {% if page_num == reviews.page %}
+                                <li class="page-item active"><span class="page-link">{{ page_num }}</span></li>
+                                {% elif page_num <= 3 or page_num > reviews.pages - 3 or (page_num >= reviews.page - 1 and page_num <= reviews.page + 1) %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('event_detail', event_id=event.id, page=page_num) }}#reviews">{{ page_num }}</a>
+                                </li>
+                                {% elif page_num == 4 or page_num == reviews.pages - 3 %}
+                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if reviews.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('event_detail', event_id=event.id, page=reviews.next_num) }}#reviews">
+                                    Вперед <i class="fas fa-chevron-right"></i>
+                                </a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+                    
                 {% else %}
                     <p class="text-muted">Пока нет отзывов. Будьте первым!</p>
                 {% endif %}
@@ -199,8 +245,9 @@
             </div>
             <div class="card-body p-0">
                 <img src="{{ url_for('static', filename='uploads/events/' + event.image_filename) }}" 
+                     class="img-fluid"
                      alt="{{ event.title }}"
-                     style="width: 100%; height: auto; display: block;">
+                     style="width: 100%; height: auto; display: block; border-radius: 8px;">
             </div>
         </div>
         {% endif %}
@@ -220,7 +267,7 @@
                     {% if event.price > 0 %}
                     <div class="col-12">
                         <h6>Стоимость</h6>
-                        <p class="text-muted">{{ event.price }} BYN</p>
+                        <p class="text-muted">{{ event.price|round(2)|string|replace('.0', '') }} BYN</p>
                     </div>
                     {% endif %}
                     <div class="col-12">

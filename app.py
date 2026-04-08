@@ -1,11 +1,17 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, date, timezone, timedelta
+from itsdangerous import URLSafeTimedSerializer
+from dotenv import load_dotenv
 import os
 import json
 from functools import wraps
+
+# Загружаем переменные из .env файла
+load_dotenv()
 from threading import Lock
 import uuid
 
@@ -26,10 +32,20 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
+# Настройки email
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', os.environ.get('MAIL_USERNAME'))
+
 # Создаем папку для загрузок, если её нет
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 db = SQLAlchemy(app)
+mail = Mail(app)
+serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
 _init_lock = Lock()
 _init_done = False
 def ensure_database_seeded():
@@ -116,6 +132,48 @@ def belarus_now():
     """Возвращает текущее время по Беларуси (UTC+3)"""
     belarus_tz = timezone(timedelta(hours=3))
     return datetime.now(belarus_tz)
+
+def generate_confirmation_token(email):
+    """Генерирует токен для подтверждения email"""
+    return serializer.dumps(email, salt='email-confirm')
+
+def confirm_token(token, expiration=3600):
+    """Проверяет токен (действителен 1 час)"""
+    try:
+        email = serializer.loads(token, salt='email-confirm', max_age=expiration)
+        return email
+    except:
+        return False
+
+def send_confirmation_email(user_email, username):
+    """Отправляет письмо с подтверждением"""
+    if not app.config.get('MAIL_USERNAME'):
+        return False
+    
+    try:
+        token = generate_confirmation_token(user_email)
+        confirm_url = url_for('confirm_email', token=token, _external=True)
+        
+        msg = Message('Подтвердите email', recipients=[user_email])
+        msg.body = f'Здравствуйте, {username}!\n\nПодтвердите email: {confirm_url}'
+        msg.html = f'''
+        <div style="font-family: Arial; max-width: 600px; margin: 0 auto;">
+            <h2>Подтверждение email</h2>
+            <p>Здравствуйте, <strong>{username}</strong>!</p>
+            <p>Для завершения регистрации подтвердите ваш email:</p>
+            <p style="text-align: center; margin: 30px 0;">
+                <a href="{confirm_url}" style="background: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                    Подтвердить email
+                </a>
+            </p>
+            <p style="color: #999; font-size: 12px;">Ссылка действительна 1 час</p>
+        </div>
+        '''
+        mail.send(msg)
+        return True
+    except Exception as e:
+        print(f"Ошибка отправки email: {e}")
+        return False
 
 def allowed_file(filename):
     """Проверяет, разрешено ли расширение файла"""
@@ -225,6 +283,9 @@ class User(db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     interests = db.Column(db.String(200), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    role = db.Column(db.String(20), default='user', nullable=False)  # user, moderator, admin
+    email_confirmed = db.Column(db.Boolean, default=False, nullable=False)
+    email_confirmed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=belarus_now)
     
     reviews = db.relationship('Review', backref='user', lazy=True, cascade='all, delete-orphan')
@@ -235,6 +296,15 @@ class User(db.Model):
     
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+    
+    def is_admin(self):
+        return self.username == 'admin' or self.role == 'admin'
+    
+    def is_moderator(self):
+        return self.role == 'moderator' or self.is_admin()
+    
+    def is_staff(self):
+        return self.is_moderator() or self.is_admin()
 
 class Review(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -252,6 +322,14 @@ class SavedEvent(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     event_id = db.Column(db.Integer, db.ForeignKey('event.id'), nullable=False)
 
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    message = db.Column(db.String(500), nullable=False)
+    type = db.Column(db.String(20), default='info')  # info, success, warning, error
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=belarus_now)
+
 class LogEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=belarus_now)
@@ -265,20 +343,42 @@ class LogEntry(db.Model):
 
 @app.context_processor
 def inject_pending_count():
-    """Добавляет количество событий на модерации во все шаблоны"""
+    """Добавляет количество событий на модерации и роль пользователя во все шаблоны"""
     pending_count = 0
+    user_role = 'user'
+    is_moderator = False
+    is_admin = False
+    
     if session.get('user_id'):
         user = db.session.get(User, session.get('user_id'))
-        if user and user.username == 'admin':
-            pending_count = Event.query.filter_by(status='pending').count()
-    return dict(pending_events_count=pending_count)
+        if user:
+            user_role = user.role if hasattr(user, 'role') else 'user'
+            is_admin = user.is_admin() if hasattr(user, 'is_admin') else (user.username == 'admin')
+            is_moderator = user.is_moderator() if hasattr(user, 'is_moderator') else False
+            
+            if is_admin or is_moderator:
+                pending_count = Event.query.filter_by(status='pending').count()
+    
+    return dict(
+        pending_events_count=pending_count,
+        user_role=user_role,
+        is_moderator=is_moderator,
+        is_admin=is_admin
+    )
+
+def sort_categories(categories):
+    """Сортирует категории, помещая 'Другое' в конец"""
+    other_categories = [cat for cat in categories if cat.lower() == 'другое']
+    regular_categories = sorted([cat for cat in categories if cat.lower() != 'другое'])
+    return regular_categories + other_categories
 
 @app.route('/')
 def index():
+    from datetime import datetime
     ensure_database_seeded()
     all_events = Event.query.filter_by(status='approved').all()
 
-    events = Event.query.filter_by(status='approved').order_by(Event.date, Event.time).all()
+    events = Event.query.filter_by(status='approved').all()
 
     # Получаем список ID событий, в которых участвует текущий пользователь
     user_id = session.get('user_id')
@@ -287,8 +387,27 @@ def index():
         saved_events = SavedEvent.query.filter_by(user_id=user_id).all()
         user_event_ids = {se.event_id for se in saved_events}
 
+    now = datetime.now()
     events_data = []
+    event_is_past = {}
+    
     for event in events:
+        # Получаем рейтинг события
+        reviews = Review.query.filter_by(event_id=event.id).all()
+        avg_rating = sum(r.rating for r in reviews) / len(reviews) if reviews else 0
+        reviews_count = len(reviews)
+        
+        # Проверяем, присоединился ли пользователь
+        is_joined = event.id in user_event_ids
+        
+        # Получаем текущее количество участников
+        current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
+        
+        # Проверяем, прошло ли событие (учитываем дату и время)
+        event_datetime = datetime.combine(event.date, event.time)
+        is_past = event_datetime < now
+        event_is_past[event.id] = is_past
+        
         events_data.append({
             'id': event.id,
             'title': event.title,
@@ -301,11 +420,25 @@ def index():
             'category': event.category,
             'interests': event.interests,
             'price': float(event.price) if event.price else 0,
-            'max_participants': event.max_participants
+            'max_participants': event.max_participants,
+            'current_participants': current_participants,
+            'avg_rating': round(avg_rating, 1),
+            'reviews_count': reviews_count,
+            'is_joined': is_joined,
+            'date_obj': event.date,
+            'time_obj': event.time
         })
     
+    # Сортируем: сначала присоединенные (по дате), потом остальные (по дате)
+    events_data.sort(key=lambda x: (not x['is_joined'], x['date_obj'], x['time_obj']))
+    
+    # Удаляем временные поля для сортировки
+    for event in events_data:
+        del event['date_obj']
+        del event['time_obj']
+    
     categories = db.session.query(Event.category).distinct().all()
-    categories = [cat[0] for cat in categories]
+    categories = sort_categories([cat[0] for cat in categories])
     
     # Получаем все уникальные интересы из всех событий
     all_interests = {}
@@ -335,16 +468,18 @@ def index():
     # Передаем текущую дату в шаблон
     today = date.today()
     
-    # Создаем словарь с информацией о заполненности событий
+    # Создаем словарь с информацией о заполненности событий и количестве участников
     event_full_status = {}
+    event_participants_count = {}
     for event in events:
+        current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
+        event_participants_count[event.id] = current_participants
         if event.max_participants:
-            current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
             event_full_status[event.id] = current_participants >= event.max_participants
         else:
             event_full_status[event.id] = False
     
-    return render_template('index.html', events=events, categories=categories, interests=interests, events_json=events_data, today=today, user_event_ids=user_event_ids, event_full_status=event_full_status)
+    return render_template('index.html', events=events, categories=categories, interests=interests, events_json=events_data, today=today, user_event_ids=user_event_ids, event_full_status=event_full_status, event_participants_count=event_participants_count, event_is_past=event_is_past)
 
 @app.route('/api/events')
 def api_events():
@@ -353,15 +488,18 @@ def api_events():
         category = request.args.get('category')
         interest = request.args.get('interest')
         search = request.args.get('search')
+        free_only = request.args.get('free_only') == 'true'
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 12))
         
-        print(f"API called with category: '{category}', interest: '{interest}', search: '{search}'")
+        print(f"API called with category: '{category}', interest: '{interest}', search: '{search}', free_only: {free_only}, page: {page}")
         
         total_events = Event.query.filter_by(status='approved').count()
         print(f"Total events in database: {total_events}")
         
         if total_events == 0:
             print("No events found in database!")
-            return jsonify([])
+            return jsonify({'events': [], 'total': 0, 'page': page, 'per_page': per_page, 'total_pages': 0})
         
         events = Event.query.filter_by(status='approved').order_by(Event.date, Event.time).all()
         
@@ -388,14 +526,15 @@ def api_events():
                         search_lower in event.location.lower()):
                     match = False
             
+            if free_only and match:
+                if event.price and event.price > 0:
+                    match = False
+            
             if match:
                 filtered_events.append(event)
         
         events = filtered_events
         print(f"Found {len(events)} events after filtering")
-        
-        for event in events:
-            print(f"  - {event.title} (category: {event.category})")
         
         user_id = session.get('user_id')
         user_event_ids = set()
@@ -404,9 +543,12 @@ def api_events():
             user_event_ids = {se.event_id for se in saved_events}
         
         events_data = []
-        today = date.today()
+        from datetime import datetime
+        now = datetime.now()
         for event in events:
-            is_past = event.date < today
+            # Проверяем, прошло ли событие (учитываем дату и время)
+            event_datetime = datetime.combine(event.date, event.time)
+            is_past = event_datetime < now
             is_participant = event.id in user_event_ids
             
             is_full = False
@@ -414,6 +556,10 @@ def api_events():
             if event.max_participants:
                 current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
                 is_full = current_participants >= event.max_participants
+            
+            reviews = Review.query.filter_by(event_id=event.id).all()
+            avg_rating = sum(r.rating for r in reviews) / len(reviews) if reviews else 0
+            reviews_count = len(reviews)
             
             events_data.append({
                 'id': event.id,
@@ -433,10 +579,37 @@ def api_events():
                 'is_participant': is_participant,
                 'is_full': is_full,
                 'creator_id': event.creator_id,
-                'is_my_event': event.creator_id == user_id if user_id else False
+                'is_my_event': event.creator_id == user_id if user_id else False,
+                'avg_rating': round(avg_rating, 1),
+                'reviews_count': reviews_count,
+                'date_obj': event.date,
+                'time_obj': event.time
             })
         
-        return jsonify(events_data)
+        # Сортируем: сначала присоединенные (по дате), потом остальные (по дате)
+        events_data.sort(key=lambda x: (not x['is_participant'], x['date_obj'], x['time_obj']))
+        
+        # Удаляем временные поля для сортировки
+        for event in events_data:
+            del event['date_obj']
+            del event['time_obj']
+        
+        # Применяем пагинацию только для списка
+        total = len(events_data)
+        total_pages = (total + per_page - 1) // per_page
+        start = (page - 1) * per_page
+        end = start + per_page
+        paginated_events = events_data[start:end]
+        
+        # Возвращаем все события для карты и только страницу для списка
+        return jsonify({
+            'events': paginated_events,
+            'all_events': events_data,  # Все отфильтрованные события для карты
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages
+        })
     except Exception as e:
         print(f"Error in api_events: {e}")
         return jsonify({'error': str(e)}), 500
@@ -444,11 +617,30 @@ def api_events():
 @app.route('/event/<int:event_id>')
 def event_detail(event_id):
     event = Event.query.get_or_404(event_id)
-    reviews = Review.query.filter_by(event_id=event_id).order_by(Review.created_at.desc()).all()
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
+    
+    reviews = Review.query.filter_by(event_id=event_id).order_by(Review.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
     
     avg_rating = 0
-    if reviews:
-        avg_rating = sum(review.rating for review in reviews) / len(reviews)
+    total_reviews = Review.query.filter_by(event_id=event_id).count()
+    if total_reviews > 0:
+        all_reviews = Review.query.filter_by(event_id=event_id).all()
+        avg_rating = sum(review.rating for review in all_reviews) / total_reviews
+    
+    # Получаем информацию об организаторе
+    organizer = None
+    if event.creator_id:
+        organizer = db.session.get(User, event.creator_id)
+        if organizer:
+            organizer_name = organizer.username
+        else:
+            organizer_name = 'admin'  # Если создатель удален, показываем admin
+    else:
+        organizer_name = 'admin'  # Если creator_id = None, это системное событие
     
     # Проверяем участие пользователя в событии
     is_participant = False
@@ -472,7 +664,7 @@ def event_detail(event_id):
             event_id=event_id
         ).first()
     
-    return render_template('event_detail.html', event=event, reviews=reviews, avg_rating=avg_rating, is_participant=is_participant, user_review=user_review, is_full=is_full)
+    return render_template('event_detail.html', event=event, reviews=reviews, avg_rating=avg_rating, is_participant=is_participant, user_review=user_review, is_full=is_full, organizer_name=organizer_name)
 
 @app.route('/add_review', methods=['POST'])
 @login_required
@@ -552,8 +744,11 @@ def save_event():
     
     # Проверяем, не прошло ли событие
     event = Event.query.get(data['event_id'])
-    if event and event.date < date.today():
-        return jsonify({'success': False, 'message': 'Нельзя присоединиться к прошедшему событию!'})
+    if event:
+        from datetime import datetime
+        event_datetime = datetime.combine(event.date, event.time)
+        if event_datetime < datetime.now():
+            return jsonify({'success': False, 'message': 'Нельзя присоединиться к прошедшему событию!'})
     
     existing = SavedEvent.query.filter_by(user_id=session['user_id'], event_id=data['event_id']).first()
     if existing:
@@ -599,7 +794,7 @@ def unsave_event():
 @app.route('/saved_events/<username>')
 @login_required
 def saved_events(username):
-    user = User.query.filter_by(username=username).first()
+    user = User.query.filter(User.username.ilike(username)).first()
     if not user:
         flash('Пользователь не найден!')
         return redirect(url_for('index'))
@@ -608,8 +803,28 @@ def saved_events(username):
         flash('У вас нет доступа к этим событиям!')
         return redirect(url_for('index'))
     
-    saved_events = SavedEvent.query.filter_by(user_id=user.id).order_by(SavedEvent.saved_at.desc()).all()
-    events = [saved.event for saved in saved_events]
+    page = request.args.get('page', 1, type=int)
+    per_page = 15
+    
+    saved_events_query = SavedEvent.query.filter_by(user_id=user.id).order_by(SavedEvent.saved_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    # Создаем объект пагинации с событиями
+    class EventsPagination:
+        def __init__(self, saved_pagination):
+            # Фильтруем только события, которые еще существуют
+            self.items = [saved.event for saved in saved_pagination.items if saved.event is not None]
+            self.page = saved_pagination.page
+            self.per_page = saved_pagination.per_page
+            self.total = saved_pagination.total
+            self.pages = saved_pagination.pages
+            self.has_prev = saved_pagination.has_prev
+            self.has_next = saved_pagination.has_next
+            self.prev_num = saved_pagination.prev_num
+            self.next_num = saved_pagination.next_num
+    
+    events = EventsPagination(saved_events_query)
     
     return render_template('saved_events.html', events=events, username=username)
 
@@ -651,10 +866,12 @@ def register():
         if password != confirm_password:
             errors.append('Пароли не совпадают')
         
-        if User.query.filter_by(username=username).first():
+        # Проверка уникальности имени пользователя (регистронезависимая)
+        if User.query.filter(User.username.ilike(username)).first():
             errors.append('Пользователь с таким именем уже существует')
         
-        if User.query.filter_by(email=email).first():
+        # Проверка уникальности email (регистронезависимая)
+        if User.query.filter(User.email.ilike(email)).first():
             errors.append('Пользователь с таким email уже существует')
         
         if errors:
@@ -663,14 +880,24 @@ def register():
             log_event('WARNING', f'Ошибка регистрации: {username} - {", ".join(errors)}', None, request)
             return render_template('register.html', form_data=form_data)
         
-        user = User(username=username, email=email, is_active=True)
+        user = User(username=username, email=email, is_active=True, email_confirmed=False)
         user.set_password(password)
         
         db.session.add(user)
         db.session.commit()
         
-        flash('Регистрация прошла успешно! Теперь вы можете войти в систему.', 'success')
-        log_event('INFO', f'Новый пользователь зарегистрирован: {username} ({email})', user.id, request)
+        # Отправляем письмо
+        if send_confirmation_email(email, username):
+            flash('Регистрация успешна! Проверьте почту для подтверждения email.', 'success')
+            log_event('INFO', f'Пользователь зарегистрирован: {username}. Письмо отправлено.', user.id, request)
+        else:
+            # Если email не настроен - автоподтверждение
+            user.email_confirmed = True
+            user.email_confirmed_at = belarus_now()
+            db.session.commit()
+            flash('Регистрация успешна! Можете войти в систему.', 'success')
+            log_event('INFO', f'Пользователь зарегистрирован: {username} (автоподтверждение)', user.id, request)
+        
         return redirect(url_for('login'))
     
     return render_template('register.html', form_data=None)
@@ -693,7 +920,8 @@ def login():
             flash('Введите пароль', 'error')
             return render_template('login.html', form_data=form_data)
         
-        user = User.query.filter_by(username=username).first()
+        # Поиск пользователя (регистронезависимый)
+        user = User.query.filter(User.username.ilike(username)).first()
         
         if user and user.check_password(password):
             if not hasattr(user, 'is_active') or user.is_active is None:
@@ -708,8 +936,27 @@ def login():
                 log_event('WARNING', f'Попытка входа заблокированным пользователем: {username}', user.id, request)
                 return render_template('login.html', form_data=form_data)
             
+            # Проверка подтверждения email
+            if hasattr(user, 'email_confirmed') and not user.email_confirmed:
+                flash('Подтвердите email. Проверьте почту.', 'warning')
+                log_event('WARNING', f'Вход без подтверждения email: {username}', user.id, request)
+                return render_template('login.html', form_data=form_data, show_resend=True, user_email=user.email)
+            
             session['user_id'] = user.id
             session['username'] = user.username
+            
+            # Проверяем непрочитанные уведомления
+            unread_notifications = Notification.query.filter_by(user_id=user.id, is_read=False).all()
+            for notification in unread_notifications:
+                flash(notification.message, notification.type)
+                notification.is_read = True
+            
+            if unread_notifications:
+                try:
+                    db.session.commit()
+                except:
+                    db.session.rollback()
+            
             flash(f'Добро пожаловать, {user.username}!', 'success')
             log_event('INFO', f'Успешный вход пользователя: {username}', user.id, request)
             return redirect(url_for('index'))
@@ -728,11 +975,59 @@ def logout():
     log_event('INFO', f'Выход пользователя: {username}', None, request)
     return redirect(url_for('index'))
 
+@app.route('/confirm/<token>')
+def confirm_email(token):
+    """Подтверждение email"""
+    email = confirm_token(token)
+    if not email:
+        flash('Ссылка недействительна или истекла.', 'error')
+        return redirect(url_for('login'))
+    
+    user = User.query.filter_by(email=email).first_or_404()
+    
+    if user.email_confirmed:
+        flash('Email уже подтвержден.', 'info')
+    else:
+        user.email_confirmed = True
+        user.email_confirmed_at = belarus_now()
+        db.session.commit()
+        flash('Email подтвержден! Можете войти.', 'success')
+        log_event('INFO', f'Email подтвержден: {user.username}', user.id, request)
+    
+    return redirect(url_for('login'))
+
+@app.route('/resend_confirmation', methods=['POST'])
+def resend_confirmation():
+    """Повторная отправка письма"""
+    email = request.form.get('email', '').strip()
+    
+    if not email:
+        flash('Email не указан', 'error')
+        return redirect(url_for('login'))
+    
+    user = User.query.filter_by(email=email).first()
+    
+    if not user:
+        flash('Пользователь не найден', 'error')
+        return redirect(url_for('login'))
+    
+    if user.email_confirmed:
+        flash('Email уже подтвержден', 'info')
+        return redirect(url_for('login'))
+    
+    if send_confirmation_email(user.email, user.username):
+        flash('Письмо отправлено повторно.', 'success')
+    else:
+        flash('Ошибка отправки.', 'error')
+    
+    return redirect(url_for('login'))
+
 @app.route('/profile')
 @login_required
 def profile():
     user = db.session.get(User, session['user_id'])
     return render_template('profile.html', user=user)
+
 
 @app.route('/profile/delete', methods=['POST'])
 @login_required
@@ -793,6 +1088,14 @@ def admin_dashboard():
     
     recent_logs = LogEntry.query.order_by(LogEntry.timestamp.desc()).limit(10).all()
     
+    # Добавляем имена пользователей к логам
+    for log in recent_logs:
+        if log.user_id:
+            log_user = db.session.get(User, log.user_id)
+            log.username = log_user.username if log_user else 'Удален'
+        else:
+            log.username = None
+    
     log_event('INFO', f'Админ {user.username} зашел в админ-панель', user.id, request)
     
     return render_template('admin_dashboard.html', 
@@ -825,6 +1128,14 @@ def view_logs():
         page=page, per_page=per_page, error_out=False
     )
     
+    # Добавляем имена пользователей к логам
+    for log in logs.items:
+        if log.user_id:
+            log_user = db.session.get(User, log.user_id)
+            log.username = log_user.username if log_user else 'Удален'
+        else:
+            log.username = None
+    
     levels = db.session.query(LogEntry.level).distinct().all()
     levels = [level[0] for level in levels]
     
@@ -841,9 +1152,14 @@ def admin_users():
         flash('У вас нет прав для управления пользователями!', 'error')
         return redirect(url_for('index'))
     
-    users = User.query.order_by(User.created_at.desc()).all()
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
     
-    for u in users:
+    users = User.query.order_by(User.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    for u in users.items:
         if not hasattr(u, 'is_active') or u.is_active is None:
             u.is_active = True
             try:
@@ -851,7 +1167,7 @@ def admin_users():
             except:
                 db.session.rollback()
     
-    log_event('INFO', f'Админ {user.username} просматривает список пользователей', user.id, request)
+    log_event('INFO', f'Админ {user.username} просматривает список пользователей (страница: {page})', user.id, request)
     
     return render_template('admin_users.html', users=users)
 
@@ -860,20 +1176,26 @@ def admin_users():
 def admin_events():
     """Управление событиями и модерация"""
     user = db.session.get(User, session['user_id'])
-    if user.username != 'admin':
+    if not user.is_moderator():
         flash('У вас нет прав для управления событиями!', 'error')
         return redirect(url_for('index'))
     
     status_filter = request.args.get('status', 'all')
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
     
-    if status_filter == 'all':
-        events = Event.query.order_by(Event.created_at.desc()).all()
-    else:
-        events = Event.query.filter_by(status=status_filter).order_by(Event.created_at.desc()).all()
+    query = Event.query
+    if status_filter != 'all':
+        query = query.filter_by(status=status_filter)
+    
+    events = query.order_by(Event.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
     
     pending_count = Event.query.filter_by(status='pending').count()
     
-    log_event('INFO', f'Админ {user.username} просматривает список событий (фильтр: {status_filter})', user.id, request)
+    role_name = 'Админ' if user.is_admin() else 'Модератор'
+    log_event('INFO', f'{role_name} {user.username} просматривает список событий (фильтр: {status_filter}, страница: {page})', user.id, request)
     
     return render_template('admin_events.html', events=events, status_filter=status_filter, pending_count=pending_count)
 
@@ -910,7 +1232,7 @@ def create_event():
                 for error in validation_errors:
                     flash(error, 'error')
                 categories = db.session.query(Event.category).distinct().all()
-                categories = [cat[0] for cat in categories]
+                categories = sort_categories([cat[0] for cat in categories])
                 form_data['date'] = request.form.get('date', '')
                 form_data['time'] = request.form.get('time', '')
                 form_data['interests_display'] = interests_input
@@ -929,14 +1251,14 @@ def create_event():
             if duplicate:
                 flash('Событие с таким названием, датой, временем и местом уже существует!', 'error')
                 categories = db.session.query(Event.category).distinct().all()
-                categories = [cat[0] for cat in categories]
+                categories = sort_categories([cat[0] for cat in categories])
                 form_data['date'] = request.form.get('date', '')
                 form_data['time'] = request.form.get('time', '')
                 form_data['interests_display'] = interests_input
                 return render_template('create_event.html', categories=categories, form_data=form_data)
             
-            # Админ создает события сразу одобренными, остальные - на модерации
-            status = 'approved' if user.username == 'admin' else 'pending'
+            # Админ и модератор создают события сразу одобренными, остальные - на модерации
+            status = 'approved' if user.is_moderator() else 'pending'
             
             # Обработка загрузки изображения
             image_filename = None
@@ -973,7 +1295,12 @@ def create_event():
                 flash('Событие отправлено на модерацию. После проверки администратором оно будет опубликовано.', 'info')
             
             log_event('INFO', f'Пользователь {user.username} создал событие: {form_data["title"]} (статус: {status})', user.id, request)
-            return redirect(url_for('my_events'))
+            
+            # Редирект в зависимости от роли
+            if user.is_moderator():
+                return redirect(url_for('admin_events'))
+            else:
+                return redirect(url_for('my_events'))
             
         except Exception as e:
             db.session.rollback()
@@ -981,7 +1308,7 @@ def create_event():
             log_event('ERROR', f'Ошибка создания события пользователем {user.username}: {str(e)}', user.id, request)
     
     categories = db.session.query(Event.category).distinct().all()
-    categories = [cat[0] for cat in categories]
+    categories = sort_categories([cat[0] for cat in categories])
     
     return render_template('create_event.html', categories=categories)
     categories = [cat[0] for cat in categories]
@@ -995,8 +1322,8 @@ def edit_event(event_id):
     user = db.session.get(User, session['user_id'])
     event = Event.query.get_or_404(event_id)
     
-    # Проверка прав: админ может редактировать все, пользователь - только свои
-    if user.username != 'admin' and event.creator_id != user.id:
+    # Проверка прав: админ и модератор могут редактировать все, пользователь - только свои
+    if not user.is_moderator() and event.creator_id != user.id:
         flash('У вас нет прав для редактирования этого события!', 'error')
         return redirect(url_for('index'))
     
@@ -1030,7 +1357,7 @@ def edit_event(event_id):
                 for error in validation_errors:
                     flash(error, 'error')
                 categories = db.session.query(Event.category).distinct().all()
-                categories = [cat[0] for cat in categories]
+                categories = sort_categories([cat[0] for cat in categories])
                 # Создаем временный объект для передачи в шаблон
                 temp_event = type('obj', (object,), {
                     'id': event.id,
@@ -1072,7 +1399,7 @@ def edit_event(event_id):
             
             if not has_changes:
                 # Просто возвращаемся без уведомления
-                if user.username == 'admin':
+                if user.is_moderator():
                     return redirect(url_for('admin_events'))
                 else:
                     return redirect(url_for('my_events'))
@@ -1128,17 +1455,19 @@ def edit_event(event_id):
                         log_event('WARNING', f'При редактировании события {event.title} удалено {removed_count} участников из-за уменьшения лимита', user.id, request)
             
             # Если редактирует обычный пользователь - отправляем на модерацию
-            if user.username != 'admin':
+            if not user.is_moderator():
                 event.status = 'pending'
                 flash('Изменения отправлены на модерацию. После проверки администратором они будут опубликованы.', 'info')
                 log_event('INFO', f'Пользователь {user.username} отредактировал событие: {event.title} (отправлено на модерацию)', user.id, request)
             else:
+                role_name = 'Админ' if user.is_admin() else 'Модератор'
                 flash('Событие успешно обновлено!', 'success')
-                log_event('INFO', f'Администратор {user.username} обновил событие: {event.title}', user.id, request)
+                log_event('INFO', f'{role_name} {user.username} обновил событие: {event.title}', user.id, request)
             
             db.session.commit()
             
-            if user.username == 'admin':
+            # Редирект в зависимости от роли
+            if user.is_moderator():
                 return redirect(url_for('admin_events'))
             else:
                 return redirect(url_for('my_events'))
@@ -1149,7 +1478,7 @@ def edit_event(event_id):
             log_event('ERROR', f'Ошибка обновления события пользователем {user.username}: {str(e)}', user.id, request)
     
     categories = db.session.query(Event.category).distinct().all()
-    categories = [cat[0] for cat in categories]
+    categories = sort_categories([cat[0] for cat in categories])
     
     # Преобразуем JSON интересов обратно в строку через запятую для отображения
     interests_display = ''
@@ -1167,11 +1496,13 @@ def edit_event(event_id):
 def delete_event(event_id):
     """Удаление события"""
     user = db.session.get(User, session['user_id'])
-    if user.username != 'admin':
-        flash('У вас нет прав для удаления событий!', 'error')
+    event = Event.query.get_or_404(event_id)
+    
+    # Проверяем права: админ, модератор или создатель события
+    if not user.is_moderator() and event.creator_id != user.id:
+        flash('У вас нет прав для удаления этого события!', 'error')
         return redirect(url_for('index'))
     
-    event = Event.query.get_or_404(event_id)
     event_title = event.title
     event_image = event.image_filename
     
@@ -1184,21 +1515,31 @@ def delete_event(event_id):
             delete_event_image(event_image)
         
         flash('Событие успешно удалено!', 'success')
-        log_event('INFO', f'Админ {user.username} удалил событие: {event_title}', user.id, request)
+        
+        if user.is_moderator():
+            role_name = 'Админ' if user.is_admin() else 'Модератор'
+            log_event('INFO', f'{role_name} {user.username} удалил событие: {event_title}', user.id, request)
+            return redirect(url_for('admin_events'))
+        else:
+            log_event('INFO', f'Пользователь {user.username} удалил свое событие: {event_title}', user.id, request)
+            return redirect(url_for('my_events'))
         
     except Exception as e:
         db.session.rollback()
         flash(f'Ошибка при удалении события: {str(e)}', 'error')
-        log_event('ERROR', f'Ошибка удаления события админом {user.username}: {str(e)}', user.id, request)
-    
-    return redirect(url_for('admin_events'))
+        log_event('ERROR', f'Ошибка удаления события пользователем {user.username}: {str(e)}', user.id, request)
+        
+        if user.is_moderator():
+            return redirect(url_for('admin_events'))
+        else:
+            return redirect(url_for('my_events'))
 
 @app.route('/admin/events/<int:event_id>/approve', methods=['POST'])
 @login_required
 def approve_event(event_id):
     """Одобрение события"""
     user = db.session.get(User, session['user_id'])
-    if user.username != 'admin':
+    if not user.is_moderator():
         return jsonify({'success': False, 'message': 'У вас нет прав для модерации событий!'}), 403
     
     event = Event.query.get_or_404(event_id)
@@ -1207,7 +1548,8 @@ def approve_event(event_id):
         event.status = 'approved'
         db.session.commit()
         
-        log_event('INFO', f'Админ {user.username} одобрил событие: {event.title}', user.id, request)
+        role_name = 'Админ' if user.is_admin() else 'Модератор'
+        log_event('INFO', f'{role_name} {user.username} одобрил событие: {event.title}', user.id, request)
         return jsonify({'success': True, 'message': 'Событие одобрено и опубликовано!'})
     except Exception as e:
         db.session.rollback()
@@ -1218,7 +1560,7 @@ def approve_event(event_id):
 def reject_event(event_id):
     """Отклонение события"""
     user = db.session.get(User, session['user_id'])
-    if user.username != 'admin':
+    if not user.is_moderator():
         return jsonify({'success': False, 'message': 'У вас нет прав для модерации событий!'}), 403
     
     event = Event.query.get_or_404(event_id)
@@ -1227,8 +1569,51 @@ def reject_event(event_id):
         event.status = 'rejected'
         db.session.commit()
         
-        log_event('INFO', f'Админ {user.username} отклонил событие: {event.title}', user.id, request)
+        role_name = 'Админ' if user.is_admin() else 'Модератор'
+        log_event('INFO', f'{role_name} {user.username} отклонил событие: {event.title}', user.id, request)
         return jsonify({'success': True, 'message': 'Событие отклонено!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
+
+@app.route('/admin/events/<int:event_id>/deactivate', methods=['POST'])
+@login_required
+def deactivate_event(event_id):
+    """Деактивировать событие (временно скрыть)"""
+    user = db.session.get(User, session['user_id'])
+    if not user.is_moderator():
+        return jsonify({'success': False, 'message': 'У вас нет прав для управления событиями!'}), 403
+    
+    event = Event.query.get_or_404(event_id)
+    
+    try:
+        event.status = 'inactive'
+        db.session.commit()
+        
+        role_name = 'Админ' if user.is_admin() else 'Модератор'
+        log_event('INFO', f'{role_name} {user.username} деактивировал событие: {event.title}', user.id, request)
+        return jsonify({'success': True, 'message': 'Событие деактивировано!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
+
+@app.route('/admin/events/<int:event_id>/activate', methods=['POST'])
+@login_required
+def activate_event(event_id):
+    """Активировать событие"""
+    user = db.session.get(User, session['user_id'])
+    if not user.is_moderator():
+        return jsonify({'success': False, 'message': 'У вас нет прав для управления событиями!'}), 403
+    
+    event = Event.query.get_or_404(event_id)
+    
+    try:
+        event.status = 'approved'
+        db.session.commit()
+        
+        role_name = 'Админ' if user.is_admin() else 'Модератор'
+        log_event('INFO', f'{role_name} {user.username} активировал событие: {event.title}', user.id, request)
+        return jsonify({'success': True, 'message': 'Событие активировано!'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
@@ -1238,9 +1623,14 @@ def reject_event(event_id):
 def my_events():
     """Просмотр своих созданных событий"""
     user = db.session.get(User, session['user_id'])
-    events = Event.query.filter_by(creator_id=user.id).order_by(Event.created_at.desc()).all()
+    page = request.args.get('page', 1, type=int)
+    per_page = 15
     
-    log_event('INFO', f'Пользователь {user.username} просматривает свои события', user.id, request)
+    events = Event.query.filter_by(creator_id=user.id).order_by(Event.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    log_event('INFO', f'Пользователь {user.username} просматривает свои события (страница: {page})', user.id, request)
     
     return render_template('my_events.html', events=events)
 
@@ -1334,6 +1724,62 @@ def toggle_user_status(user_id):
         db.session.rollback()
         flash(f'Ошибка при изменении статуса пользователя: {str(e)}', 'error')
         log_event('ERROR', f'Ошибка изменения статуса пользователя админом {user.username}: {str(e)}', user.id, request)
+    
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/<int:user_id>/toggle_moderator', methods=['POST'])
+@login_required
+def toggle_moderator(user_id):
+    """Назначение/снятие роли модератора"""
+    user = db.session.get(User, session['user_id'])
+    if not user.is_admin():
+        flash('У вас нет прав для назначения модераторов!', 'error')
+        return redirect(url_for('index'))
+    
+    if user_id == user.id:
+        flash('Нельзя изменить роль самого себя!', 'error')
+        return redirect(url_for('admin_users'))
+    
+    target_user = User.query.get_or_404(user_id)
+    
+    if target_user.username == 'admin':
+        flash('Нельзя изменить роль администратора!', 'error')
+        return redirect(url_for('admin_users'))
+    
+    # Переключаем роль
+    if target_user.role == 'moderator':
+        target_user.role = 'user'
+        action = 'снята роль модератора'
+        message = f'Роль модератора снята с пользователя {target_user.username}'
+        
+        # Создаем уведомление о понижении
+        notification = Notification(
+            user_id=target_user.id,
+            message='Ваша роль модератора была снята. Теперь у вас обычные права пользователя.',
+            type='warning'
+        )
+        db.session.add(notification)
+    else:
+        target_user.role = 'moderator'
+        action = 'назначен модератором'
+        message = f'Пользователь {target_user.username} назначен модератором!'
+        
+        # Создаем уведомление для пользователя
+        notification = Notification(
+            user_id=target_user.id,
+            message='Поздравляем! Вы были назначены модератором. Теперь у вас есть доступ к модер-панели для управления событиями.',
+            type='success'
+        )
+        db.session.add(notification)
+    
+    try:
+        db.session.commit()
+        flash(message, 'success')
+        log_event('INFO', f'Админ {user.username} {action}: {target_user.username}', user.id, request)
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Ошибка при изменении роли: {str(e)}', 'error')
+        log_event('ERROR', f'Ошибка изменения роли пользователя: {str(e)}', user.id, request)
     
     return redirect(url_for('admin_users'))
 

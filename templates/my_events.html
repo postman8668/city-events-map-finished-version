@@ -11,14 +11,14 @@
         </a>
     </div>
 
-    {% if events %}
+    {% if events.items %}
         <div class="row">
-            {% for event in events %}
+            {% for event in events.items %}
             <div class="col-md-6 mb-4">
                 <div class="card h-100">
                     {% if event.image_filename %}
                     <img src="{{ url_for('static', filename='uploads/events/' + event.image_filename) }}" 
-                         class="card-img-top" 
+                         class="card-img-top img-fluid" 
                          alt="{{ event.title }}"
                          style="height: 200px; object-fit: contain; background-color: #f8f9fa;">
                     {% endif %}
@@ -50,7 +50,7 @@
                             {% if event.price == 0 %}
                                 <span class="badge bg-success">Бесплатно</span>
                             {% else %}
-                                <span class="badge bg-secondary">{{ event.price }} BYN</span>
+                                <span class="badge bg-secondary">{{ event.price|round(2)|string|replace('.0', '') }} BYN</span>
                             {% endif %}
                         </div>
                         
@@ -68,12 +68,26 @@
                             <a href="{{ url_for('edit_event', event_id=event.id) }}" class="btn btn-sm btn-outline-secondary">
                                 <i class="fas fa-edit"></i> Редактировать
                             </a>
+                            <form method="POST" action="{{ url_for('delete_event', event_id=event.id) }}" 
+                                  style="display: inline;" 
+                                  onsubmit="return confirm('Вы уверены, что хотите удалить это событие?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-trash"></i> Удалить
+                                </button>
+                            </form>
                         </div>
                         {% elif event.status == 'pending' or event.status == 'rejected' %}
                         <div class="mt-3">
                             <a href="{{ url_for('edit_event', event_id=event.id) }}" class="btn btn-sm btn-outline-secondary">
                                 <i class="fas fa-edit"></i> Редактировать
                             </a>
+                            <form method="POST" action="{{ url_for('delete_event', event_id=event.id) }}" 
+                                  style="display: inline;" 
+                                  onsubmit="return confirm('Вы уверены, что хотите удалить это событие?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-trash"></i> Удалить
+                                </button>
+                            </form>
                         </div>
                         {% endif %}
                     </div>
@@ -81,6 +95,45 @@
             </div>
             {% endfor %}
         </div>
+        
+        <!-- Пагинация -->
+        {% if events.pages > 1 %}
+        <nav aria-label="Навигация по событиям" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if events.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('my_events', page=events.prev_num) }}">
+                        <i class="fas fa-chevron-left"></i> Назад
+                    </a>
+                </li>
+                {% endif %}
+                
+                {% for page_num in range(1, events.pages + 1) %}
+                    {% if page_num == events.page %}
+                    <li class="page-item active"><span class="page-link">{{ page_num }}</span></li>
+                    {% elif page_num <= 3 or page_num > events.pages - 3 or (page_num >= events.page - 1 and page_num <= events.page + 1) %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('my_events', page=page_num) }}">{{ page_num }}</a>
+                    </li>
+                    {% elif page_num == 4 or page_num == events.pages - 3 %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if events.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('my_events', page=events.next_num) }}">
+                        Вперед <i class="fas fa-chevron-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        <div class="text-center text-muted mb-3">
+            <small>Страница {{ events.page }} из {{ events.pages }} (всего событий: {{ events.total }})</small>
+        </div>
+        {% endif %}
+        
     {% else %}
         <div class="alert alert-info">
             <i class="fas fa-info-circle"></i> У вас пока нет созданных событий.

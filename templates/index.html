@@ -3,6 +3,25 @@
 {% block title %}Главная - Карта событий города{% endblock %}
 
 {% block content %}
+<style>
+    /* Убираем стрелочку у поля с автодополнением */
+    #interestFilter::-webkit-calendar-picker-indicator {
+        display: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+    #interestFilter::-webkit-list-button {
+        display: none !important;
+    }
+    /* Для Firefox */
+    #interestFilter::-moz-list-button {
+        display: none !important;
+    }
+    /* Дополнительная защита */
+    input[list]::-webkit-calendar-picker-indicator {
+        display: none !important;
+    }
+</style>
 <div class="row">
     <div class="col-lg-8">
         
@@ -23,16 +42,16 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-12 col-sm-6 col-md-4">
+                <div class="col-12 col-sm-6 col-md-5">
                     <label for="interestFilter" class="form-label">Интерес:</label>
-                    <select class="form-select" id="interestFilter" onchange="applyFilters()">
-                        <option value="">Все интересы</option>
+                    <input type="text" class="form-control" id="interestFilter" list="interestsList" placeholder="Начните вводить интерес..." oninput="applyFilters()">
+                    <datalist id="interestsList">
                         {% for interest in interests %}
-                        <option value="{{ interest }}">{{ interest }}</option>
+                        <option value="{{ interest }}">
                         {% endfor %}
-                    </select>
+                    </datalist>
                 </div>
-                <div class="col-12 col-sm-6 col-md-4">
+                <div class="col-12 col-sm-6 col-md-3">
                     <label class="form-label">&nbsp;</label>
                     <div class="form-check" style="padding-top: 8px;">
                         <input class="form-check-input" type="checkbox" id="freeOnlyFilter" onchange="applyFilters()">
@@ -53,7 +72,7 @@
             <div class="card event-card {% if session.user_id and event.creator_id == session.user_id %}border-primary{% endif %}" {% if session.user_id and event.creator_id == session.user_id %}style="border-width: 2px;"{% endif %}>
                 {% if event.image_filename %}
                 <img src="{{ url_for('static', filename='uploads/events/' + event.image_filename) }}" 
-                     class="card-img-top" 
+                     class="card-img-top img-fluid" 
                      alt="{{ event.title }}"
                      style="height: 200px; object-fit: contain; background-color: #f8f9fa;">
                 {% endif %}
@@ -73,9 +92,16 @@
                             <div class="mb-2">
                                 <span class="badge bg-primary category-badge me-2">{{ event.category }}</span>
                                 {% if event.price > 0 %}
-                                <span class="badge price-badge">{{ event.price }} BYN</span>
+                                <span class="badge price-badge">{{ event.price|round(2)|string|replace('.0', '') }} BYN</span>
                                 {% else %}
                                 <span class="badge free-badge">Бесплатно</span>
+                                {% endif %}
+                                {% set reviews = event.reviews %}
+                                {% if reviews|length > 0 %}
+                                {% set avg_rating = (reviews|sum(attribute='rating') / reviews|length)|round(1) %}
+                                <span class="badge bg-warning text-dark ms-2">
+                                    <i class="fas fa-star"></i> {{ avg_rating }} ({{ reviews|length }})
+                                </span>
                                 {% endif %}
                             </div>
                             
@@ -88,13 +114,13 @@
                             <div class="text-muted small mt-1">
                                 <i class="fas fa-users me-1"></i>Участников: 
                                 {% if event.max_participants %}
-                                {{ event.participants_count }}/{{ event.max_participants }}
+                                {{ event_participants_count[event.id] }}/{{ event.max_participants }}
                                 {% else %}
-                                {{ event.participants_count }}
+                                {{ event_participants_count[event.id] }}
                                 {% endif %}
                             </div>
                             
-                            {% set is_past = event.date < today %}
+                            {% set is_past = event_is_past[event.id] %}
                             
                             {% if is_past %}
                             <div class="mt-2">
@@ -142,6 +168,9 @@
             </div>
             {% endfor %}
         </div>
+        
+        <!-- Пагинация -->
+        <div id="pagination" class="d-flex justify-content-center mt-4 mb-4"></div>
     </div>
     
     <div class="col-lg-4">
@@ -176,6 +205,8 @@
     let map;
     let markers = [];
     const initialEvents = {{ events_json | tojson }};
+    let currentPage = 1;
+    let totalPages = 1;
 
     function initMap() {
         console.log('Initializing map...');
@@ -219,19 +250,22 @@
             updateMap(initialEvents);
             updateEventsList(initialEvents);
         }
-        loadEvents();
+        loadEvents(1);
     }
 
-    function loadEvents() {
+    function loadEvents(page = 1) {
         const category = document.getElementById('categoryFilter').value;
         const interest = document.getElementById('interestFilter').value;
         const search = document.getElementById('searchInput').value;
         const freeOnly = document.getElementById('freeOnlyFilter').checked;
         
-        let url = '/api/events?';
+        currentPage = page;
+        
+        let url = `/api/events?page=${page}&per_page=12&`;
         if (category !== 'all') url += `category=${category}&`;
         if (interest) url += `interest=${interest}&`;
         if (search) url += `search=${encodeURIComponent(search)}&`;
+        if (freeOnly) url += `free_only=true&`;
         
         console.log('Loading events from:', url);
         
@@ -243,32 +277,23 @@
                 }
                 return response.json();
             })
-            .then(events => {
-                console.log('Loaded events:', events.length);
-                console.log('Events data:', events);
+            .then(data => {
+                console.log('Loaded data:', data);
+                
+                let events = data.events || [];
+                let allEvents = data.all_events || events;  // Используем все события для карты
+                totalPages = data.total_pages || 1;
                 
                 if (!Array.isArray(events)) {
                     console.error('Events is not an array:', events);
                     return;
                 }
                 
-                if (freeOnly) {
-                    events = events.filter(event => !event.price || event.price === 0);
-                }
-                
                 const hasActiveFilters = (category && category !== 'all') || interest || (search && search.trim() !== '') || freeOnly;
                 
-                if (events.length === 0 && hasActiveFilters) {
-                    updateMap([]);
-                    updateEventsList([], true);
-                } else if (events.length === 0 && !hasActiveFilters && Array.isArray(initialEvents) && initialEvents.length > 0) {
-                    console.warn('API вернуло пусто, используем initialEvents');
-                    updateMap(initialEvents);
-                    updateEventsList(initialEvents);
-                } else {
-                    updateMap(events);
-                    updateEventsList(events);
-                }
+                updateMap(allEvents);  // Обновляем карту всеми отфильтрованными событиями
+                updateEventsList(events, events.length === 0 && hasActiveFilters);
+                updatePagination(data.total, data.page, data.per_page, data.total_pages);
             })
             .catch(error => {
                 console.error('Error loading events:', error);
@@ -280,6 +305,9 @@
                             <p>Не удалось загрузить события. Попробуйте обновить страницу.</p>
                             <hr>
                             <p class="mb-0">Ошибка: ${error.message}</p>
+                            <button class="btn btn-primary mt-3" onclick="location.reload()">
+                                <i class="fas fa-sync-alt me-1"></i>Обновить страницу
+                            </button>
                         </div>
                     `;
                 }
@@ -307,11 +335,15 @@
                 return;
             }
 
+            const ratingHtml = event.reviews_count > 0 ? 
+                `<p><i class="fas fa-star text-warning"></i> ${event.avg_rating} (${event.reviews_count} отзывов)</p>` : '';
+            
             const marker = L.marker([lat, lng])
                 .bindPopup(`
                     <div>
                         <h6>${event.title}</h6>
                         <p>${event.description.substring(0, 100)}${event.description.length > 100 ? '...' : ''}</p>
+                        ${ratingHtml}
                         <p><strong>Дата:</strong> ${event.date} в ${event.time}</p>
                         <p><strong>Место:</strong> ${event.location}</p>
                         <a href="/event/${event.id}" class="btn btn-sm btn-primary map-popup-btn">Подробнее</a>
@@ -377,8 +409,11 @@
         ).join('');
         
         const priceBadge = event.price > 0 ? 
-            `<span class="badge price-badge">${event.price} BYN</span>` :
+            `<span class="badge price-badge">${event.price % 1 === 0 ? Math.floor(event.price) : event.price.toFixed(2).replace(/\.?0+$/, '')} BYN</span>` :
             `<span class="badge free-badge">Бесплатно</span>`;
+        
+        const ratingBadge = event.reviews_count > 0 ?
+            `<span class="badge bg-warning text-dark ms-2"><i class="fas fa-star"></i> ${event.avg_rating} (${event.reviews_count})</span>` : '';
         
         const isPast = event.is_past || false;
         const pastBadge = isPast ? '<div class="mt-2"><span class="badge bg-secondary"><i class="fas fa-history me-1"></i>Событие прошло</span></div>' : '';
@@ -423,6 +458,7 @@
                         <div class="mb-2">
                             <span class="badge bg-primary category-badge me-2">${event.category}</span>
                             ${priceBadge}
+                            ${ratingBadge}
                         </div>
                         
                         <div class="text-muted small">
@@ -457,7 +493,68 @@
     }
 
     function applyFilters() {
-        loadEvents();
+        currentPage = 1;
+        loadEvents(1);
+    }
+    
+    function updatePagination(total, page, perPage, totalPages) {
+        const paginationDiv = document.getElementById('pagination');
+        if (!paginationDiv) return;
+        
+        if (totalPages <= 1) {
+            paginationDiv.innerHTML = '';
+            return;
+        }
+        
+        let html = '<nav><ul class="pagination">';
+        
+        // Предыдущая страница
+        if (page > 1) {
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="loadEvents(${page - 1}); return false;">Назад</a></li>`;
+        } else {
+            html += '<li class="page-item disabled"><span class="page-link">Назад</span></li>';
+        }
+        
+        // Страницы
+        const maxVisible = 5;
+        let startPage = Math.max(1, page - Math.floor(maxVisible / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+        
+        if (endPage - startPage < maxVisible - 1) {
+            startPage = Math.max(1, endPage - maxVisible + 1);
+        }
+        
+        if (startPage > 1) {
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="loadEvents(1); return false;">1</a></li>`;
+            if (startPage > 2) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            if (i === page) {
+                html += `<li class="page-item active"><span class="page-link">${i}</span></li>`;
+            } else {
+                html += `<li class="page-item"><a class="page-link" href="#" onclick="loadEvents(${i}); return false;">${i}</a></li>`;
+            }
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="loadEvents(${totalPages}); return false;">${totalPages}</a></li>`;
+        }
+        
+        // Следующая страница
+        if (page < totalPages) {
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="loadEvents(${page + 1}); return false;">Вперед</a></li>`;
+        } else {
+            html += '<li class="page-item disabled"><span class="page-link">Вперед</span></li>';
+        }
+        
+        html += '</ul></nav>';
+        paginationDiv.innerHTML = html;
     }
 
     function saveEvent(eventId) {
@@ -485,8 +582,8 @@
         .then(data => {
             if (data && data.success) {
                 showToast(data.message, 'success');
-                // Перезагружаем страницу чтобы обновить кнопки
-                setTimeout(() => location.reload(), 1000);
+                // Обновляем список событий без перезагрузки страницы
+                loadEvents();
             } else if (data) {
                 showToast(data.message, 'error');
             }
@@ -516,8 +613,8 @@
         .then(data => {
             if (data.success) {
                 showToast(data.message, 'success');
-                // Перезагружаем страницу чтобы обновить кнопки
-                setTimeout(() => location.reload(), 1000);
+                // Обновляем список событий без перезагрузки страницы
+                loadEvents();
             } else {
                 showToast(data.message, 'error');
             }

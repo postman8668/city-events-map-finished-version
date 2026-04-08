@@ -11,74 +11,74 @@
                     <h2><i class="fas fa-tachometer-alt"></i> Админ-панель</h2>
                     <small class="text-muted">Время показано по Беларуси (UTC+3)</small>
                 </div>
-                <div class="btn-group" role="group">
-                    <a href="{{ url_for('index') }}" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left"></i> Назад
-                    </a>
+                <div>
                     <a href="{{ url_for('view_logs') }}" class="btn btn-primary">
                         <i class="fas fa-list-alt"></i> Логи
                     </a>
                 </div>
             </div>
 
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card bg-primary text-white">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h5 class="card-title">События</h5>
-                                    <h2>{{ total_events }}</h2>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="fas fa-calendar-alt fa-2x"></i>
-                                </div>
-                            </div>
+            <!-- Быстрые действия - перемещены вверх -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-bolt me-2"></i>Быстрые действия</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <a href="{{ url_for('view_logs') }}" class="btn btn-outline-primary w-100 mb-2">
+                                <i class="fas fa-list-alt me-1"></i>Просмотр логов
+                            </a>
+                        </div>
+                        <div class="col-md-3">
+                            <a href="{{ url_for('admin_events') }}" class="btn btn-outline-success w-100 mb-2">
+                                <i class="fas fa-calendar-alt me-1"></i>События
+                            </a>
+                        </div>
+                        <div class="col-md-3">
+                            <a href="{{ url_for('admin_users') }}" class="btn btn-outline-warning w-100 mb-2">
+                                <i class="fas fa-users me-1"></i>Пользователи
+                            </a>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-outline-info w-100 mb-2" onclick="location.reload()">
+                                <i class="fas fa-sync-alt me-1"></i>Обновить
+                            </button>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="card bg-warning text-dark">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h5 class="card-title">На модерации</h5>
-                                    <h2>{{ pending_events }}</h2>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="fas fa-clock fa-2x"></i>
-                                </div>
-                            </div>
+            </div>
+
+            <div class="row mb-4 g-3">
+                <div class="col-6 col-md-3">
+                    <div class="card shadow-sm" style="border-left: 4px solid #0d6efd;">
+                        <div class="card-body p-3">
+                            <div class="small text-secondary mb-1">События</div>
+                            <div class="h4 mb-0 fw-bold">{{ total_events }}</div>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="card bg-success text-white">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h5 class="card-title">Пользователи</h5>
-                                    <h2>{{ total_users }}</h2>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="fas fa-users fa-2x"></i>
-                                </div>
-                            </div>
+                <div class="col-6 col-md-3">
+                    <div class="card shadow-sm" style="border-left: 4px solid #ffc107;">
+                        <div class="card-body p-3">
+                            <div class="small text-secondary mb-1">На модерации</div>
+                            <div class="h4 mb-0 fw-bold">{{ pending_events }}</div>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="card bg-info text-white">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between">
-                                <div>
-                                    <h5 class="card-title">Логи</h5>
-                                    <h2>{{ total_logs }}</h2>
-                                </div>
-                                <div class="align-self-center">
-                                    <i class="fas fa-list-alt fa-2x"></i>
-                                </div>
-                            </div>
+                <div class="col-6 col-md-3">
+                    <div class="card shadow-sm" style="border-left: 4px solid #198754;">
+                        <div class="card-body p-3">
+                            <div class="small text-secondary mb-1">Пользователи</div>
+                            <div class="h4 mb-0 fw-bold">{{ total_users }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card shadow-sm" style="border-left: 4px solid #0dcaf0;">
+                        <div class="card-body p-3">
+                            <div class="small text-secondary mb-1">Логи</div>
+                            <div class="h4 mb-0 fw-bold">{{ total_logs }}</div>
                         </div>
                     </div>
                 </div>
@@ -103,7 +103,7 @@
                                     <small>
                                         <span class="badge bg-primary">{{ event.category }}</span>
                                         {% if event.price > 0 %}
-                                        <span class="badge bg-success">{{ event.price }} BYN</span>
+                                        <span class="badge bg-success">{{ event.price|round(2)|string|replace('.0', '') }} BYN</span>
                                         {% else %}
                                         <span class="badge bg-info">Бесплатно</span>
                                         {% endif %}
@@ -142,8 +142,7 @@
                                     </div>
                                     <p class="mb-1">{{ log.message }}</p>
                                     <small class="text-muted">
-                                        {% if log.user_id %}Пользователь ID: {{ log.user_id }}{% endif %}
-                                        {% if log.ip_address %} | IP: {{ log.ip_address }}{% endif %}
+                                        {% if log.username %}Пользователь: {{ log.username }}{% endif %}
                                     </small>
                                 </div>
                                 {% endfor %}
@@ -151,52 +150,6 @@
                             {% else %}
                             <p class="text-muted">Нет логов</p>
                             {% endif %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5><i class="fas fa-bolt me-2"></i>Быстрые действия</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-3">
-                                    <a href="{{ url_for('view_logs') }}" class="btn btn-outline-primary w-100 mb-2">
-                                        <i class="fas fa-list-alt me-1"></i>Просмотр логов
-                                    </a>
-                                </div>
-                                <div class="col-md-3">
-                                    <a href="{{ url_for('admin_events') }}" class="btn btn-outline-success w-100 mb-2">
-                                        <i class="fas fa-calendar-alt me-1"></i>События
-                                    </a>
-                                </div>
-                                <div class="col-md-3">
-                                    <a href="{{ url_for('admin_users') }}" class="btn btn-outline-warning w-100 mb-2">
-                                        <i class="fas fa-users me-1"></i>Пользователи
-                                    </a>
-                                </div>
-                                <div class="col-md-3">
-                                    <a href="{{ url_for('index') }}" class="btn btn-outline-info w-100 mb-2">
-                                        <i class="fas fa-home me-1"></i>Главная страница
-                                    </a>
-                                </div>
-                                <div class="col-md-3">
-                                    <button class="btn btn-outline-info w-100 mb-2" onclick="location.reload()">
-                                        <i class="fas fa-sync-alt me-1"></i>Обновить
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="row mt-2">
-                                <div class="col-md-3">
-                                    <a href="{{ url_for('logout') }}" class="btn btn-outline-danger w-100 mb-2">
-                                        <i class="fas fa-sign-out-alt me-1"></i>Выйти
-                                    </a>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>

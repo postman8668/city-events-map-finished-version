@@ -1,15 +1,19 @@
 ﻿{% extends "base.html" %}
 
-{% block title %}Создание события - Админ-панель{% endblock %}
+{% block title %}Создание события{% if is_moderator %} - {% if is_admin %}Админ-панель{% else %}Модер-панель{% endif %}{% endif %}{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-lg-8">
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
-                {% if session.username == 'admin' %}
-                <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Админ-панель</a></li>
-                <li class="breadcrumb-item"><a href="{{ url_for('admin_events') }}">События</a></li>
+                {% if is_moderator %}
+                    {% if is_admin %}
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Админ-панель</a></li>
+                    {% else %}
+                    <li class="breadcrumb-item">Модер-панель</li>
+                    {% endif %}
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_events') }}">События</a></li>
                 {% else %}
                 <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Главная</a></li>
                 <li class="breadcrumb-item"><a href="{{ url_for('my_events') }}">Мои события</a></li>
@@ -55,12 +59,12 @@
                         <input type="file" class="form-control" id="image" name="image" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
                         <div class="form-text">
                             Форматы: PNG, JPG, JPEG, GIF, WEBP. Максимальный размер: 5 МБ
-                            {% if session.username != 'admin' %}
+                            {% if not is_moderator %}
                             <br><small class="text-info"><i class="fas fa-info-circle"></i> Событие с изображением будет отправлено на модерацию</small>
                             {% endif %}
                         </div>
                         <div id="imagePreview" class="mt-2" style="display: none;">
-                            <img id="previewImg" src="" alt="Предпросмотр" style="max-width: 300px; max-height: 200px; border-radius: 8px;">
+                            <img id="previewImg" src="" alt="Предпросмотр" class="img-fluid" style="max-width: 100%; max-height: 200px; border-radius: 8px; object-fit: contain;">
                         </div>
                     </div>
                     
@@ -135,7 +139,7 @@
                         <button type="submit" class="btn btn-success flex-fill">
                             <i class="fas fa-save me-1"></i>Создать событие
                         </button>
-                        {% if session.username == 'admin' %}
+                        {% if is_moderator %}
                         <a href="{{ url_for('admin_events') }}" class="btn btn-outline-secondary flex-fill">
                             <i class="fas fa-times me-1"></i>Отмена
                         </a>

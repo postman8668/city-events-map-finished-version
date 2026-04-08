@@ -12,7 +12,105 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modern-style.css') }}">
     <style>
+        /* Глобальные настройки скругления */
+        .card {
+            border-radius: 8px !important;
+            overflow: hidden;
+        }
+        
+        .card img {
+            border-radius: 0 !important;
+        }
+        
+        .modal-content img {
+            border-radius: 8px !important;
+        }
+        
+        img.img-fluid {
+            border-radius: 8px !important;
+        }
+        
+        .btn {
+            border-radius: 6px !important;
+        }
+        
+        .form-control, .form-select {
+            border-radius: 6px !important;
+        }
+        
+        .badge {
+            border-radius: 6px !important;
+        }
+        
+        .alert {
+            border-radius: 8px !important;
+        }
+        
+        .modal-content {
+            border-radius: 10px !important;
+        }
+        
+        .dropdown-menu {
+            border-radius: 8px !important;
+        }
+        
+        .navbar {
+            border-radius: 0 !important;
+        }
+        
+        /* Глобальные отступы */
+        .card {
+            margin-bottom: 1.5rem;
+        }
+        
+        .card-body {
+            padding: 1.5rem;
+        }
+        
+        .btn {
+            padding: 0.5rem 1rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .mb-3 {
+            margin-bottom: 1rem !important;
+        }
+        
+        .mb-4 {
+            margin-bottom: 1.5rem !important;
+        }
+        
+        .mt-3 {
+            margin-top: 1rem !important;
+        }
+        
+        .mt-4 {
+            margin-top: 1.5rem !important;
+        }
+        
+        .p-3 {
+            padding: 1rem !important;
+        }
+        
+        .p-4 {
+            padding: 1.5rem !important;
+        }
+        
+        @media (max-width: 768px) {
+            .card-body {
+                padding: 1rem;
+            }
+            
+            .btn {
+                padding: 0.4rem 0.8rem;
+            }
+        }
+        
         .navbar-brand {
             font-weight: bold;
         }
@@ -171,12 +269,6 @@
             border-radius: 15px;
             font-size: 0.8em;
         }
-        .footer {
-            background: linear-gradient(135deg, #2c3e50, #34495e);
-            color: white;
-            padding: 20px 0;
-            margin-top: auto;
-        }
         body {
             display: flex;
             flex-direction: column;
@@ -307,6 +399,95 @@
             border-color: #dc3545 !important;
             box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25) !important;
         }
+        
+        /* Более тусклые плашки с датой, временем и местом */
+        .text-muted.small {
+            line-height: 1.8;
+            min-height: 2.5em;
+        }
+        
+        /* Единая высота и умеренная яркость для бейджей */
+        .badge {
+            padding: 0.4em 0.8em;
+            font-size: 0.85em;
+            font-weight: 500;
+            line-height: 1.2;
+            display: inline-block;
+            vertical-align: middle;
+            opacity: 0.85;
+        }
+        
+        /* Улучшенные отступы для карточек событий */
+        .event-card .card-body {
+            padding: 1.25rem;
+        }
+        
+        .event-card .card-body > * {
+            margin-bottom: 0.75rem;
+        }
+        
+        .event-card .card-body > *:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Отступы для мобильных устройств */
+        @media (max-width: 768px) {
+            .event-card .card-body {
+                padding: 1rem;
+            }
+            
+            .event-card .card-body > * {
+                margin-bottom: 0.5rem;
+            }
+            
+            .badge {
+                margin: 0.15rem;
+            }
+            
+            .interest-tag {
+                margin: 0.15rem;
+            }
+        }
+        
+        /* Улучшенные отступы для кнопок */
+        .btn-group-vertical .btn,
+        .btn-group .btn {
+            margin: 0.15rem;
+        }
+        
+        /* Отступы между элементами в карточках */
+        .card-text {
+            margin-bottom: 1rem !important;
+        }
+        
+        .mb-3 {
+            margin-bottom: 1rem !important;
+        }
+        
+        /* Увеличенный крестик закрытия попапа на карте */
+        .leaflet-popup-close-button {
+            font-size: 24px !important;
+            width: 32px !important;
+            height: 32px !important;
+            padding: 4px !important;
+            line-height: 24px !important;
+        }
+        
+        .leaflet-popup-close-button:hover {
+            background-color: rgba(0, 0, 0, 0.1) !important;
+            border-radius: 4px;
+        }
+        
+        /* Для мобильных устройств делаем еще больше */
+        @media (max-width: 768px) {
+            .leaflet-popup-close-button {
+                font-size: 28px !important;
+                width: 40px !important;
+                height: 40px !important;
+                padding: 6px !important;
+                line-height: 28px !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -327,10 +508,20 @@
                         </a>
                     </li>
                     {% if session.user_id %}
-                    {% if session.username != 'admin' %}
+                    {% if not is_admin and not is_moderator %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('my_events') }}">
                             <i class="fas fa-calendar-plus me-1"></i>Мои события
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if is_moderator and not is_admin %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin_events') }}">
+                            <i class="fas fa-shield-alt me-1"></i>Модер-панель
+                            {% if pending_events_count > 0 %}
+                            <span class="badge bg-danger ms-1">{{ pending_events_count }}</span>
+                            {% endif %}
                         </a>
                     </li>
                     {% endif %}
@@ -339,7 +530,7 @@
                             <i class="fas fa-users me-1"></i>Я участвую
                         </a>
                     </li>
-                    {% if session.username == 'admin' %}
+                    {% if is_admin %}
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-tachometer-alt me-1"></i>Админ
@@ -398,11 +589,22 @@
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрыть"></button>
-                    </div>
+                    {% if 'модератором' in message or 'роль модератора' in message %}
+                        <div class="alert alert-{{ 'warning' if category == 'warning' else 'success' }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрыть"></button>
+                        </div>
+                    {% endif %}
                 {% endfor %}
+                <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        {% for category, message in messages %}
+                            {% if 'модератором' not in message and 'роль модератора' not in message %}
+                                showToast('{{ message|safe }}', '{{ category if category != "error" else "error" }}');
+                            {% endif %}
+                        {% endfor %}
+                    });
+                </script>
             {% endif %}
         {% endwith %}
 
@@ -411,7 +613,7 @@
 
     <footer class="footer">
         <div class="container text-center">
-            <p>&copy; 2026 События Полоцка и Новополоцка. Все права защищены.</p>
+            <p>&copy; 2026 События Полоцка и Новополоцка</p>
         </div>
     </footer>
 
@@ -428,17 +630,17 @@
         };
         
         // Функция для показа Toast-уведомлений
-        function showToast(message, type = 'info') {
+        function showToast(message, type = 'info', duration = 1500) {
             const colors = {
                 success: 'linear-gradient(to right, #27ae60, #2ecc71)',
                 error: 'linear-gradient(to right, #e74c3c, #c0392b)',
                 warning: 'linear-gradient(to right, #f39c12, #e67e22)',
-                info: 'linear-gradient(to right, #3498db, #2980b9)'
+                info: 'linear-gradient(to right, #3b82f6, #2563eb)'  // Синий вместо фиолетового
             };
             
             Toastify({
                 text: message,
-                duration: 2500,
+                duration: duration,
                 gravity: "top",
                 position: "right",
                 stopOnFocus: true,

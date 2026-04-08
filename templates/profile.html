@@ -51,9 +51,6 @@
                     <a href="{{ url_for('saved_events', username=user.username) }}" class="btn btn-primary">
                         <i class="fas fa-users me-1"></i>Я участвую
                     </a>
-                    <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
-                        <i class="fas fa-arrow-left me-1"></i>На главную
-                    </a>
                     {% if user.username != 'admin' %}
                     <button class="btn btn-outline-danger" onclick="deleteAccount()">
                         <i class="fas fa-trash me-1"></i>Удалить аккаунт

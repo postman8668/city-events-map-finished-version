@@ -1,17 +1,23 @@
 ﻿{% extends "base.html" %}
 
-{% block title %}Редактирование события - Админ-панель{% endblock %}
+{% block title %}Редактирование события{% if is_moderator %} - {% if is_admin %}Админ-панель{% else %}Модер-панель{% endif %}{% endif %}{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-lg-8">
+        {% if is_moderator %}
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
+                {% if is_admin %}
                 <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Админ-панель</a></li>
+                {% else %}
+                <li class="breadcrumb-item">Модер-панель</li>
+                {% endif %}
                 <li class="breadcrumb-item"><a href="{{ url_for('admin_events') }}">События</a></li>
                 <li class="breadcrumb-item active">Редактирование</li>
             </ol>
         </nav>
+        {% endif %}
 
         <h1><i class="fas fa-edit me-2"></i>Редактирование события</h1>
         
@@ -53,8 +59,9 @@
                         {% if event.image_filename %}
                         <div class="mb-2">
                             <img src="{{ url_for('static', filename='uploads/events/' + event.image_filename) }}" 
+                                 class="img-fluid"
                                  alt="{{ event.title }}" 
-                                 style="max-width: 300px; max-height: 200px; border-radius: 8px;" 
+                                 style="max-width: 100%; max-height: 200px; border-radius: 8px; object-fit: contain;" 
                                  class="d-block mb-2">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="remove_image" name="remove_image">
@@ -68,12 +75,12 @@
                         <div class="form-text">
                             Форматы: PNG, JPG, JPEG, GIF, WEBP. Максимальный размер: 5 МБ
                             <br><small class="text-muted"><i class="fas fa-info-circle"></i> Чтобы заменить изображение, просто выберите новый файл</small>
-                            {% if session.username != 'admin' %}
+                            {% if not is_moderator %}
                             <br><small class="text-info"><i class="fas fa-info-circle"></i> Изменения изображения будут отправлены на модерацию</small>
                             {% endif %}
                         </div>
                         <div id="imagePreview" class="mt-2" style="display: none;">
-                            <img id="previewImg" src="" alt="Предпросмотр" style="max-width: 300px; max-height: 200px; border-radius: 8px;">
+                            <img id="previewImg" src="" alt="Предпросмотр" class="img-fluid" style="max-width: 100%; max-height: 200px; border-radius: 8px; object-fit: contain;">
                         </div>
                     </div>
                     <div class="row">
@@ -152,7 +159,7 @@
                         <button type="submit" class="btn btn-success">
                             <i class="fas fa-save me-1"></i>Сохранить изменения
                         </button>
-                        {% if session.username == 'admin' %}
+                        {% if is_moderator %}
                         <a href="{{ url_for('admin_events') }}" class="btn btn-outline-secondary">
                             <i class="fas fa-times me-1"></i>Отмена
                         </a>
@@ -173,7 +180,6 @@
                 <h5><i class="fas fa-info-circle me-2"></i>Информация о событии</h5>
             </div>
             <div class="card-body">
-                <p><strong>ID:</strong> {{ event.id }}</p>
                 <p><strong>Создано:</strong> {{ event.created_at.strftime('%d.%m.%Y %H:%M') }}</p>
                 
                 <h6 class="mt-3">Статистика:</h6>

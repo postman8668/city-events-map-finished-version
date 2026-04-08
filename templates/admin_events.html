@@ -40,17 +40,20 @@
                    class="btn btn-sm {% if status_filter == 'rejected' %}btn-danger{% else %}btn-outline-danger{% endif %}">
                     Отклоненные
                 </a>
+                <a href="{{ url_for('admin_events', status='inactive') }}" 
+                   class="btn btn-sm {% if status_filter == 'inactive' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">
+                    Деактивированные
+                </a>
             </div>
         </div>
         
         <div class="card">
             <div class="card-body">
-                {% if events %}
+                {% if events.items %}
                 <div class="table-responsive">
                     <table class="table table-hover">
                         <thead>
                             <tr>
-                                <th class="d-none d-sm-table-cell">ID</th>
                                 <th>Название</th>
                                 <th class="d-none d-md-table-cell">Автор</th>
                                 <th class="d-none d-md-table-cell">Категория</th>
@@ -60,9 +63,8 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for event in events %}
+                            {% for event in events.items %}
                             <tr>
-                                <td class="d-none d-sm-table-cell">{{ event.id }}</td>
                                 <td>
                                     <a href="{{ url_for('event_detail', event_id=event.id) }}" class="text-decoration-none">
                                         {% if event.image_filename %}
@@ -81,7 +83,7 @@
                                     {% if event.creator %}
                                         <small>{{ event.creator.username }}</small>
                                     {% else %}
-                                        <small class="text-muted">Система</small>
+                                        <small class="text-muted">admin</small>
                                     {% endif %}
                                 </td>
                                 <td class="d-none d-md-table-cell">
@@ -110,6 +112,18 @@
                                                 <i class="fas fa-times"></i>
                                                 <span class="d-none d-lg-inline ms-1">Отклонить</span>
                                             </button>
+                                        {% elif event.status == 'approved' %}
+                                            <button onclick="toggleEventStatus({{ event.id }}, 'deactivate')" 
+                                                    class="btn btn-outline-warning" title="Деактивировать">
+                                                <i class="fas fa-eye-slash"></i>
+                                                <span class="d-none d-lg-inline ms-1">Деактивировать</span>
+                                            </button>
+                                        {% elif event.status == 'inactive' %}
+                                            <button onclick="toggleEventStatus({{ event.id }}, 'activate')" 
+                                                    class="btn btn-outline-success" title="Активировать">
+                                                <i class="fas fa-eye"></i>
+                                                <span class="d-none d-lg-inline ms-1">Активировать</span>
+                                            </button>
                                         {% endif %}
                                         <a href="{{ url_for('edit_event', event_id=event.id) }}" 
                                            class="btn btn-outline-primary" title="Редактировать">
@@ -131,23 +145,52 @@
                         </tbody>
                     </table>
                 </div>
+                
+                <!-- Пагинация -->
+                {% if events.pages > 1 %}
+                <nav aria-label="Навигация по событиям" class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        {% if events.has_prev %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('admin_events', status=status_filter, page=events.prev_num) }}">
+                                <i class="fas fa-chevron-left"></i> Назад
+                            </a>
+                        </li>
+                        {% endif %}
+                        
+                        {% for page_num in range(1, events.pages + 1) %}
+                            {% if page_num == events.page %}
+                            <li class="page-item active"><span class="page-link">{{ page_num }}</span></li>
+                            {% elif page_num <= 3 or page_num > events.pages - 3 or (page_num >= events.page - 1 and page_num <= events.page + 1) %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('admin_events', status=status_filter, page=page_num) }}">{{ page_num }}</a>
+                            </li>
+                            {% elif page_num == 4 or page_num == events.pages - 3 %}
+                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if events.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('admin_events', status=status_filter, page=events.next_num) }}">
+                                Вперед <i class="fas fa-chevron-right"></i>
+                            </a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                <div class="text-center text-muted mb-3">
+                    <small>Страница {{ events.page }} из {{ events.pages }} (всего событий: {{ events.total }})</small>
+                </div>
+                {% endif %}
+                
                 {% else %}
                 <div class="text-center py-5">
                     <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
-                    <h4 class="text-muted">События не найдены</h4>
-                    <p class="text-muted">Создайте первое событие, чтобы начать работу.</p>
-                    <a href="{{ url_for('create_event') }}" class="btn btn-primary">
-                        <i class="fas fa-plus me-1"></i>Создать событие
-                    </a>
+                    <h5 class="text-muted">Здесь пока ничего нет</h5>
                 </div>
                 {% endif %}
             </div>
-        </div>
-        
-        <div class="mt-3">
-            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
-                <i class="fas fa-arrow-left me-1"></i>Назад к админ-панели
-            </a>
         </div>
     </div>
 </div>
@@ -175,6 +218,32 @@ function moderateEvent(eventId, action) {
     .catch(error => {
         console.error('Error:', error);
         showToast('Произошла ошибка при модерации события', 'error');
+    });
+}
+
+function toggleEventStatus(eventId, action) {
+    const url = action === 'activate' 
+        ? `/admin/events/${eventId}/activate` 
+        : `/admin/events/${eventId}/deactivate`;
+    
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast(data.message, 'success');
+            location.reload();
+        } else {
+            showToast(data.message || 'Произошла ошибка', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('Произошла ошибка при изменении статуса события', 'error');
     });
 }
 </script>
