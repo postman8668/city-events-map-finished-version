@@ -469,6 +469,15 @@ main {
         object-fit: cover;
     }
     
+    /* Отступ между интересами и кнопками на главной странице */
+    .event-card .col-md-4 {
+        margin-top: 1rem;
+    }
+    
+    .event-card .interest-tag {
+        margin-bottom: 0.5rem;
+    }
+    
     /* Кнопки */
     .btn {
         padding: 0.5rem 1rem;
