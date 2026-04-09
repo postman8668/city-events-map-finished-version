@@ -552,9 +552,8 @@ def api_events():
             is_participant = event.id in user_event_ids
             
             is_full = False
-            current_participants = 0
+            current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
             if event.max_participants:
-                current_participants = SavedEvent.query.filter_by(event_id=event.id).count()
                 is_full = current_participants >= event.max_participants
             
             reviews = Review.query.filter_by(event_id=event.id).all()

@@ -583,7 +583,7 @@
             if (data && data.success) {
                 showToast(data.message, 'success');
                 // Обновляем список событий без перезагрузки страницы
-                loadEvents();
+                loadEvents(currentPage);
             } else if (data) {
                 showToast(data.message, 'error');
             }
@@ -614,7 +614,7 @@
             if (data.success) {
                 showToast(data.message, 'success');
                 // Обновляем список событий без перезагрузки страницы
-                loadEvents();
+                loadEvents(currentPage);
             } else {
                 showToast(data.message, 'error');
             }
