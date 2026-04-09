@@ -588,20 +588,10 @@
     <main class="container mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for category, message in messages %}
-                    {% if 'модератором' in message or 'роль модератора' in message %}
-                        <div class="alert alert-{{ 'warning' if category == 'warning' else 'success' }} alert-dismissible fade show" role="alert">
-                            {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрыть"></button>
-                        </div>
-                    {% endif %}
-                {% endfor %}
                 <script>
                     document.addEventListener('DOMContentLoaded', function() {
                         {% for category, message in messages %}
-                            {% if 'модератором' not in message and 'роль модератора' not in message %}
-                                showToast('{{ message|safe }}', '{{ category if category != "error" else "error" }}');
-                            {% endif %}
+                            showToast('{{ message|safe }}', '{{ category if category != "error" else "error" }}');
                         {% endfor %}
                     });
                 </script>
