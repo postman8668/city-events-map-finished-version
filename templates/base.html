@@ -588,10 +588,20 @@
     <main class="container mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
+                {% for category, message in messages %}
+                    {% if 'Поздравляем! Вы были назначены модератором' in message or 'Ваша роль модератора была снята' in message %}
+                        <div class="alert alert-{{ 'warning' if category == 'warning' else 'success' }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрыть"></button>
+                        </div>
+                    {% endif %}
+                {% endfor %}
                 <script>
                     document.addEventListener('DOMContentLoaded', function() {
                         {% for category, message in messages %}
-                            showToast('{{ message|safe }}', '{{ category if category != "error" else "error" }}');
+                            {% if 'Поздравляем! Вы были назначены модератором' not in message and 'Ваша роль модератора была снята' not in message %}
+                                showToast('{{ message|safe }}', '{{ category if category != "error" else "error" }}');
+                            {% endif %}
                         {% endfor %}
                     });
                 </script>
