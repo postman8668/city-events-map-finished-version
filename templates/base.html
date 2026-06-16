@@ -130,6 +130,35 @@
         .navbar-brand {
             font-weight: bold;
         }
+        
+        /* Унифицированные размеры и выравнивание для всех элементов навигации */
+        .navbar-nav .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            font-size: 1rem;
+            line-height: 1.5;
+        }
+        
+        .navbar-nav .dropdown-toggle {
+            display: flex;
+            align-items: center;
+        }
+        
+        /* Унифицированные размеры для бейджей уведомлений */
+        .navbar-nav .badge {
+            min-width: 24px;
+            min-height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.35em 0.5em;
+            font-size: 0.75rem;
+            font-weight: 600;
+            line-height: 1;
+            border-radius: 50%;
+        }
+        
         .event-card {
             transition: transform 0.2s;
             margin-bottom: 20px;
@@ -544,6 +573,9 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('saved_events', username=session.username) }}">
                             <i class="fas fa-users me-1"></i>Я участвую
+                            {% if upcoming_events_count > 0 %}
+                            <span class="badge bg-warning ms-1">{{ upcoming_events_count }}</span>
+                            {% endif %}
                         </a>
                     </li>
                     {% if is_admin %}
@@ -629,7 +661,7 @@
 
     <footer class="footer">
         <div class="container text-center">
-            <p>&copy; 2026 События Полоцка и Новополоцка</p>
+            <p>2026 События Полоцка и Новополоцка</p>
         </div>
     </footer>
 

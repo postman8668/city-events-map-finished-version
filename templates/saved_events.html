@@ -14,7 +14,20 @@
         <div class="row">
             {% for event in events.items %}
             <div class="col-md-6 col-lg-4 mb-4">
-                <div class="card event-card h-100">
+                <div class="card event-card h-100 {% if event.id in upcoming_event_ids %}border-warning border-3{% endif %}">
+                    {% if event.id in upcoming_event_ids %}
+                    <div class="card-header bg-warning text-dark">
+                        <i class="fas fa-bell me-1"></i>
+                        {% set days_until = (event.date - today).days %}
+                        {% if days_until == 0 %}
+                        <strong>Сегодня!</strong>
+                        {% elif days_until == 1 %}
+                        <strong>Завтра!</strong>
+                        {% else %}
+                        <strong>Через {{ days_until }} дн.</strong>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     <div class="card-body d-flex flex-column">
                         <h5 class="card-title">
                             <a href="/event/{{ event.id }}" class="text-decoration-none">

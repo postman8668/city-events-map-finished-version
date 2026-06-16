@@ -46,6 +46,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 db = SQLAlchemy(app)
 mail = Mail(app)
 serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+
 _init_lock = Lock()
 _init_done = False
 def ensure_database_seeded():
@@ -242,6 +243,33 @@ def log_event(level, message, user_id=None, request_obj=None):
     except Exception as e:
         print(f"Ошибка при записи в лог: {e}")
 
+def send_event_reminder_email(user_email, username, event_title, event_date, event_time):
+    """Отправляет email-напоминание о событии"""
+    if not app.config.get('MAIL_USERNAME'):
+        return False
+    
+    try:
+        msg = Message(f'Напоминание: {event_title}', recipients=[user_email])
+        msg.body = f'Здравствуйте, {username}!\n\nНапоминаем, что вы зарегистрированы на событие "{event_title}".\nДата: {event_date}\nВремя: {event_time}'
+        msg.html = f'''
+        <div style="font-family: Arial; max-width: 600px; margin: 0 auto;">
+            <h2>Напоминание о событии</h2>
+            <p>Здравствуйте, <strong>{username}</strong>!</p>
+            <p>Напоминаем, что вы зарегистрированы на событие:</p>
+            <div style="background: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                <h3 style="margin-top: 0;">{event_title}</h3>
+                <p><strong>Дата:</strong> {event_date}</p>
+                <p><strong>Время:</strong> {event_time}</p>
+            </div>
+            <p>Ждем вас!</p>
+        </div>
+        '''
+        mail.send(msg)
+        return True
+    except Exception as e:
+        print(f"Ошибка отправки email-напоминания: {e}")
+        return False
+
 class Event(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
@@ -343,8 +371,9 @@ class LogEntry(db.Model):
 
 @app.context_processor
 def inject_pending_count():
-    """Добавляет количество событий на модерации и роль пользователя во все шаблоны"""
+    """Добавляет количество событий на модерации, роль пользователя и счетчик приближающихся событий во все шаблоны"""
     pending_count = 0
+    upcoming_events_count = 0
     user_role = 'user'
     is_moderator = False
     is_admin = False
@@ -358,9 +387,22 @@ def inject_pending_count():
             
             if is_admin or is_moderator:
                 pending_count = Event.query.filter_by(status='pending').count()
+            
+            # Подсчитываем приближающиеся события (в течение 7 дней)
+            now = belarus_now()
+            today = now.date()
+            in_week = today + timedelta(days=7)
+            
+            # Получаем события пользователя, которые состоятся в ближайшие 7 дней
+            user_saved_events = SavedEvent.query.filter_by(user_id=user.id).all()
+            for saved_event in user_saved_events:
+                event = saved_event.event
+                if event and event.date >= today and event.date <= in_week:
+                    upcoming_events_count += 1
     
     return dict(
         pending_events_count=pending_count,
+        upcoming_events_count=upcoming_events_count,
         user_role=user_role,
         is_moderator=is_moderator,
         is_admin=is_admin
@@ -501,7 +543,37 @@ def api_events():
             print("No events found in database!")
             return jsonify({'events': [], 'total': 0, 'page': page, 'per_page': per_page, 'total_pages': 0})
         
-        events = Event.query.filter_by(status='approved').order_by(Event.date, Event.time).all()
+        events = Event.query.filter_by(status='approved').all()
+        
+        # Сортируем события: сначала будущие (по возрастанию даты), потом прошедшие (по убыванию даты)
+        from datetime import datetime
+        now = datetime.now()
+        
+        future_events = []
+        past_events = []
+        
+        for event in events:
+            event_datetime = datetime.combine(event.date, event.time)
+            if event_datetime >= now:
+                future_events.append(event)
+            else:
+                past_events.append(event)
+        
+        # Сортируем будущие события по возрастанию даты (ближайшие первые)
+        future_events.sort(key=lambda e: (e.date, e.time))
+        
+        # Сортируем прошедшие события по убыванию даты (недавно прошедшие первые)
+        past_events.sort(key=lambda e: (e.date, e.time), reverse=True)
+        
+        # Объединяем: сначала будущие, потом прошедшие
+        events = future_events + past_events
+        
+        print(f"DEBUG: Future events: {len(future_events)}, Past events: {len(past_events)}")
+        if future_events:
+            print(f"DEBUG: First future event: {future_events[0].title} - {future_events[0].date}")
+        if past_events:
+            print(f"DEBUG: First past event: {past_events[0].title} - {past_events[0].date}")
+
         
         filtered_events = []
         for event in events:
@@ -543,8 +615,6 @@ def api_events():
             user_event_ids = {se.event_id for se in saved_events}
         
         events_data = []
-        from datetime import datetime
-        now = datetime.now()
         for event in events:
             # Проверяем, прошло ли событие (учитываем дату и время)
             event_datetime = datetime.combine(event.date, event.time)
@@ -585,8 +655,13 @@ def api_events():
                 'time_obj': event.time
             })
         
-        # Сортируем: сначала присоединенные (по дате), потом остальные (по дате)
-        events_data.sort(key=lambda x: (not x['is_participant'], x['date_obj'], x['time_obj']))
+        # Сортируем: сначала присоединенные будущие, потом остальные будущие, потом прошедшие
+        events_data.sort(key=lambda x: (
+            x['is_past'],  # Сначала будущие (False), потом прошедшие (True)
+            not x['is_participant'],  # Среди будущих - сначала присоединенные
+            x['date_obj'] if not x['is_past'] else -x['date_obj'].toordinal(),  # Будущие по возрастанию, прошедшие по убыванию
+            x['time_obj']
+        ))
         
         # Удаляем временные поля для сортировки
         for event in events_data:
@@ -763,6 +838,7 @@ def save_event():
     db.session.add(saved_event)
     db.session.commit()
     
+    # Возвращаем сообщение напрямую, без сохранения в БД уведомлений
     return jsonify({'success': True, 'message': 'Вы успешно присоединились к событию!'})
 
 @app.route('/unsave_event', methods=['POST'])
@@ -825,7 +901,17 @@ def saved_events(username):
     
     events = EventsPagination(saved_events_query)
     
-    return render_template('saved_events.html', events=events, username=username)
+    # Определяем приближающиеся события (в течение 7 дней)
+    now = belarus_now()
+    today = now.date()
+    in_week = today + timedelta(days=7)
+    
+    upcoming_event_ids = set()
+    for event in events.items:
+        if event and event.date >= today and event.date <= in_week:
+            upcoming_event_ids.add(event.id)
+    
+    return render_template('saved_events.html', events=events, username=username, upcoming_event_ids=upcoming_event_ids, today=today)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -944,11 +1030,13 @@ def login():
             session['user_id'] = user.id
             session['username'] = user.username
             
-            # Проверяем непрочитанные уведомления
+            # Проверяем непрочитанные уведомления (кроме напоминаний о событиях)
             unread_notifications = Notification.query.filter_by(user_id=user.id, is_read=False).all()
             for notification in unread_notifications:
-                flash(notification.message, notification.type)
-                notification.is_read = True
+                # Не показываем напоминания о приближающихся событиях при входе
+                if not notification.message.startswith('Напоминание: событие'):
+                    flash(notification.message, notification.type)
+                    notification.is_read = True
             
             if unread_notifications:
                 try:
@@ -2318,4 +2406,5 @@ if __name__ == '__main__':
             print("Тестовые данные добавлены!")
             print("Тестовый пользователь: admin / admin123")
     
-    app.run(debug=True)
+    app.run(debug=True, port=8000)
+
